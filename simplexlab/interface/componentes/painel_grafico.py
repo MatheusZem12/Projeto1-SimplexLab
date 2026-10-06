@@ -1,13 +1,13 @@
 from tkinter import ttk
 
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
 from simplexlab.interface.desenho.desenho_grafico import desenhar_metodo_grafico
 
 
-# Aba "Gráfico": área do Matplotlib dentro do Tkinter, com a barra de
-# ferramentas (zoom, mover, salvar imagem).
+# Aba "Gráfico": área do Matplotlib dentro do Tkinter. O gráfico é só para
+# visualização, por isso não tem a barra de ferramentas de zoom e mover.
 class PainelGrafico(ttk.Frame):
 
     def __init__(self, mestre):
@@ -16,10 +16,6 @@ class PainelGrafico(ttk.Frame):
         self.figura = Figure(figsize=(6, 5), dpi=100)
         self.eixo = self.figura.add_subplot(111)
         self.canvas = FigureCanvasTkAgg(self.figura, master=self)
-
-        barra = NavigationToolbar2Tk(self.canvas, self, pack_toolbar=False)
-        barra.update()
-        barra.pack(side="bottom", fill="x")
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
 
         self.limpar()
