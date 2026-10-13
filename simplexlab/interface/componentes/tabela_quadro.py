@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from simplexlab.interface.estilos import CORES, FONTE_MONO, FAMILIA_MONO
-from simplexlab.util.formatacao import formatar_numero
+from simplexlab.modelo import formatar_numero
 
 FONTE_CELULA_NEGRITO = (FAMILIA_MONO, 11, "bold")
 

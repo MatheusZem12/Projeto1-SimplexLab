@@ -1,7 +1,8 @@
 """
-Leitura do modelo de PL digitado pelo usuário (entrada por expressão).
+Modelo de Programação Linear: as classes do problema, a leitura do texto
+digitado pelo usuário, a formatação de números e os exemplos prontos.
 
-Formato aceito, uma informação por linha:
+Formato aceito na entrada, uma informação por linha:
 
     max z = 3x1 + 5x2
     s.a.
@@ -15,17 +16,132 @@ sempre considera todas as variáveis >= 0.
 """
 
 import re
+from dataclasses import dataclass
 from fractions import Fraction
 
-from simplexlab.modelo.problema import (
-    IGUAL,
-    MAIOR_IGUAL,
-    MAXIMIZAR,
-    MENOR_IGUAL,
-    MINIMIZAR,
-    ProblemaPL,
-    Restricao,
-)
+MAXIMIZAR = "max"
+MINIMIZAR = "min"
+
+MENOR_IGUAL = "<="
+MAIOR_IGUAL = ">="
+IGUAL = "="
+
+
+# ---------------------------------------------------------------------------
+# Formatação de números e expressões
+# ---------------------------------------------------------------------------
+
+# Converte um número para texto. Inteiros aparecem sem casas decimais e os
+# demais aparecem como fração (ex.: 3/2), que é como montamos os quadros em aula.
+def formatar_numero(valor):
+    valor = Fraction(valor)
+    if valor.denominator == 1:
+        return str(valor.numerator)
+    if valor.denominator <= 1000:
+        return f"{valor.numerator}/{valor.denominator}"
+    return formatar_decimal(valor)
+
+
+# Mostra o número em decimal com no máximo 4 casas, usando vírgula.
+def formatar_decimal(valor):
+    texto = f"{float(valor):.4f}".rstrip("0").rstrip(".")
+    if texto == "-0":
+        texto = "0"
+    return texto.replace(".", ",")
+
+
+# Usado nos resultados finais: mostra a fração e, se não for inteiro,
+# também o valor aproximado em decimal. Ex.: "9/2 (4,5)".
+def formatar_resultado(valor):
+    valor = Fraction(valor)
+    if valor.denominator == 1:
+        return str(valor.numerator)
+    return f"{formatar_numero(valor)} ({formatar_decimal(valor)})"
+
+
+# Formata um ponto como "(2, 6)".
+def formatar_ponto(ponto):
+    return f"({formatar_numero(ponto[0])}, {formatar_numero(ponto[1])})"
+
+
+# Monta uma expressão linear legível a partir dos coeficientes.
+# Ex.: [3, -1, 0] com ["x1", "x2", "x3"] vira "3x1 - x2".
+def montar_expressao(coeficientes, nomes):
+    partes = []
+    for coeficiente, nome in zip(coeficientes, nomes):
+        if coeficiente == 0:
+            continue
+        sinal = "-" if coeficiente < 0 else "+"
+        modulo = abs(coeficiente)
+        termo = nome if modulo == 1 else f"{formatar_numero(modulo)}{nome}"
+        if not partes:
+            partes.append(f"-{termo}" if sinal == "-" else termo)
+        else:
+            partes.append(f"{sinal} {termo}")
+    return " ".join(partes) if partes else "0"
+
+
+# ---------------------------------------------------------------------------
+# Classes do problema
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Restricao:
+    coeficientes: list
+    sinal: str
+    lado_direito: Fraction
+
+    # Calcula o valor do lado esquerdo da restrição em um ponto.
+    def valor_em(self, ponto):
+        return sum(a * x for a, x in zip(self.coeficientes, ponto))
+
+    # Verifica se o ponto informado respeita a restrição.
+    def atendida_por(self, ponto):
+        esquerdo = self.valor_em(ponto)
+        if self.sinal == MENOR_IGUAL:
+            return esquerdo <= self.lado_direito
+        if self.sinal == MAIOR_IGUAL:
+            return esquerdo >= self.lado_direito
+        return esquerdo == self.lado_direito
+
+    # Texto da restrição usando os nomes das variáveis do problema.
+    def como_texto(self, nomes):
+        expressao = montar_expressao(self.coeficientes, nomes)
+        return f"{expressao} {self.sinal} {formatar_numero(self.lado_direito)}"
+
+
+@dataclass
+class ProblemaPL:
+    tipo: str
+    objetivo: list
+    restricoes: list
+    variaveis: list
+
+    @property
+    def num_variaveis(self):
+        return len(self.variaveis)
+
+    @property
+    def eh_maximizacao(self):
+        return self.tipo == MAXIMIZAR
+
+    # Calcula o valor da função objetivo em um ponto.
+    def calcular_objetivo(self, ponto):
+        return sum(c * x for c, x in zip(self.objetivo, ponto))
+
+    # Devolve o modelo escrito no formato que usamos em aula.
+    def como_texto(self):
+        tipo = "Max" if self.eh_maximizacao else "Min"
+        linhas = [f"{tipo} Z = {montar_expressao(self.objetivo, self.variaveis)}", "s.a."]
+        for restricao in self.restricoes:
+            linhas.append(f"    {restricao.como_texto(self.variaveis)}")
+        linhas.append(f"    {', '.join(self.variaveis)} >= 0")
+        return "\n".join(linhas)
+
+
+# ---------------------------------------------------------------------------
+# Leitura do modelo digitado (entrada por expressão)
+# ---------------------------------------------------------------------------
 
 PADRAO_OBJETIVO = re.compile(r"^(max|min)[a-z]*\s*:?\s*(?:[a-z]\w*\s*=)?\s*(.*)$")
 PADRAO_SUJEITO_A = re.compile(r"^(s\.\s*a\.?|sujeito\s+a|subject\s+to|s\.\s*t\.?)\s*:?\s*")
@@ -203,3 +319,58 @@ def _ordenar_variaveis(objetivo, restricoes):
         return [int(parte) if parte.isdigit() else parte for parte in re.findall(r"\d+|\D+", nome)]
 
     return sorted(nomes, key=chave_natural)
+
+
+# ---------------------------------------------------------------------------
+# Exemplos prontos
+# ---------------------------------------------------------------------------
+
+# Problemas prontos para testar o sistema e usar na apresentação.
+# Cada exemplo cobre uma situação diferente que o professor pode pedir.
+EXEMPLOS = {
+    "Maximização clássica (2 variáveis)": """max z = 3x1 + 5x2
+s.a.
+x1 <= 4
+2x2 <= 12
+3x1 + 2x2 <= 18
+x1, x2 >= 0""",
+
+    "Minimização com restrições >=": """min z = 2x1 + 3x2
+s.a.
+x1 + x2 >= 4
+x1 + 3x2 >= 6
+x1, x2 >= 0""",
+
+    "Restrição de igualdade": """max z = 2x1 + 3x2
+s.a.
+x1 + x2 = 5
+x1 <= 4
+x2 <= 3
+x1, x2 >= 0""",
+
+    "Maximização com 3 variáveis": """max z = 5x1 + 4x2 + 3x3
+s.a.
+2x1 + 3x2 + x3 <= 5
+4x1 + x2 + 2x3 <= 11
+3x1 + 4x2 + 2x3 <= 8
+x1, x2, x3 >= 0""",
+
+    "Soluções ótimas múltiplas": """max z = 2x1 + 4x2
+s.a.
+x1 + 2x2 <= 8
+x1 <= 6
+x2 <= 3
+x1, x2 >= 0""",
+
+    "Problema ilimitado": """max z = x1 + 2x2
+s.a.
+x1 - x2 <= 2
+x1 <= 4
+x1, x2 >= 0""",
+
+    "Problema inviável": """max z = x1 + x2
+s.a.
+x1 + x2 <= 2
+x1 + x2 >= 5
+x1, x2 >= 0""",
+}

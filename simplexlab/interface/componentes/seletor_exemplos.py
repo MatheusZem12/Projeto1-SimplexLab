@@ -1,6 +1,6 @@
 from tkinter import ttk
 
-from simplexlab.modelo.exemplos import EXEMPLOS
+from simplexlab.modelo import EXEMPLOS
 
 
 # Lista de exemplos prontos. Ao clicar em "Carregar", chama a função

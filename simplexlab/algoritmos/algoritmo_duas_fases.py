@@ -12,11 +12,9 @@ de MetodoSimplex.
 
 from fractions import Fraction
 
-from simplexlab.algoritmos.forma_padrao import montar_forma_padrao
-from simplexlab.algoritmos.quadro_simplex import QuadroSimplex
-from simplexlab.algoritmos.resultado import INVIAVEL, Etapa, Resultado
-from simplexlab.algoritmos.simplex import MetodoSimplex
-from simplexlab.util.formatacao import formatar_numero
+from simplexlab.algoritmos.algoritmo_pl import INVIAVEL, Etapa, Resultado, montar_forma_padrao
+from simplexlab.algoritmos.algoritmo_simplex import MetodoSimplex, QuadroSimplex
+from simplexlab.modelo import formatar_numero
 
 
 class MetodoDuasFases(MetodoSimplex):

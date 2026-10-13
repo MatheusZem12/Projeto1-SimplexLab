@@ -1,20 +1,84 @@
 """
-Conversão do modelo para a forma padrão usada pelo Simplex.
-
-Regras aplicadas em cada restrição:
-    <=  soma uma variável de folga (f)
-    >=  subtrai uma variável de excesso (e) e soma uma artificial (a)
-    =   soma uma variável artificial (a)
-
-Se o lado direito for negativo, a restrição é multiplicada por -1 antes,
-invertendo o sinal da desigualdade.
+Partes comuns aos métodos de Programação Linear: a situação do problema
+(ótimo, ilimitado, inviável), as classes Etapa e Resultado que os métodos
+devolvem para a interface e a conversão para a forma padrão.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from fractions import Fraction
 
-from simplexlab.modelo.problema import IGUAL, MAIOR_IGUAL, MENOR_IGUAL, Restricao
-from simplexlab.util.formatacao import formatar_numero, montar_expressao
+from simplexlab.modelo import (
+    IGUAL,
+    MAIOR_IGUAL,
+    MENOR_IGUAL,
+    Restricao,
+    formatar_numero,
+    montar_expressao,
+)
+
+OTIMO = "otimo"
+ILIMITADO = "ilimitado"
+INVIAVEL = "inviavel"
+
+DESCRICAO_STATUS = {
+    OTIMO: "Solução ótima encontrada",
+    ILIMITADO: "Problema ilimitado (sem solução ótima finita)",
+    INVIAVEL: "Problema inviável (não existe solução que atenda todas as restrições)",
+}
+
+
+# Uma etapa da resolução. Sempre tem título e explicação, e pode ter uma
+# tabela (quadro do Simplex ou tabela de vértices do método gráfico).
+@dataclass
+class Etapa:
+    titulo: str
+    descricao: str
+    colunas: list = field(default_factory=list)
+    rotulos_linhas: list = field(default_factory=list)
+    linhas: list = field(default_factory=list)
+    rotulo_base: str = "Base"
+    ultima_linha_objetivo: bool = False
+    linha_destaque: int | None = None
+    coluna_destaque: int | None = None
+
+    @property
+    def tem_tabela(self):
+        return bool(self.linhas)
+
+
+# Resultado comum aos dois métodos.
+@dataclass
+class Resultado:
+    metodo: str
+    status: str
+    valor_otimo: Fraction | None = None
+    solucao: dict = field(default_factory=dict)
+    variaveis_auxiliares: dict = field(default_factory=dict)
+    etapas: list = field(default_factory=list)
+    observacoes: list = field(default_factory=list)
+
+    @property
+    def descricao_status(self):
+        return DESCRICAO_STATUS[self.status]
+
+
+# Resultado do método gráfico, com as informações extras para desenhar o gráfico.
+@dataclass
+class ResultadoGrafico(Resultado):
+    vertices: list = field(default_factory=list)
+    pontos_otimos: list = field(default_factory=list)
+    regiao_ilimitada: bool = False
+
+
+# Forma padrão
+#
+# Regras aplicadas em cada restrição:
+#     <=  soma uma variável de folga (f)
+#     >=  subtrai uma variável de excesso (e) e soma uma artificial (a)
+#     =   soma uma variável artificial (a)
+#
+# Se o lado direito for negativo, a restrição é multiplicada por -1 antes,
+# invertendo o sinal da desigualdade.
 
 INVERSO = {MENOR_IGUAL: MAIOR_IGUAL, MAIOR_IGUAL: MENOR_IGUAL, IGUAL: IGUAL}
 

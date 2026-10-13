@@ -20,8 +20,7 @@ from simplexlab.interface.componentes.painel_resultado import PainelResultado
 from simplexlab.interface.componentes.seletor_exemplos import SeletorExemplos
 from simplexlab.interface.componentes.seletor_metodo import SeletorMetodo
 from simplexlab.interface.estilos import aplicar_estilos
-from simplexlab.modelo.exemplos import EXEMPLOS
-from simplexlab.modelo.leitor_modelo import ErroLeitura, ler_modelo
+from simplexlab.modelo import EXEMPLOS, ErroLeitura, ler_modelo
 
 
 class TelaPrincipal:

@@ -1,5 +1,5 @@
 """
-Método Gráfico para problemas com duas variáveis.
+Método Gráfico (somente 2 variáveis).
 
 Passos:
     1. cada restrição vira uma reta a1*x1 + a2*x2 = b, e a tabela das retas
@@ -17,15 +17,16 @@ import math
 from fractions import Fraction
 from itertools import combinations
 
-from simplexlab.algoritmos.resultado import (
-    ILIMITADO,
-    INVIAVEL,
-    OTIMO,
-    Etapa,
-    ResultadoGrafico,
+from simplexlab.algoritmos.algoritmo_pl import ILIMITADO, INVIAVEL, OTIMO, Etapa, ResultadoGrafico
+from simplexlab.modelo import (
+    IGUAL,
+    MAIOR_IGUAL,
+    MENOR_IGUAL,
+    Restricao,
+    formatar_numero,
+    formatar_ponto,
+    formatar_resultado,
 )
-from simplexlab.modelo.problema import IGUAL, MAIOR_IGUAL, MENOR_IGUAL, Restricao
-from simplexlab.util.formatacao import formatar_numero, formatar_resultado
 
 
 class MetodoGrafico:
@@ -308,8 +309,3 @@ def _direcao_respeita(restricao, direcao):
     if restricao.sinal == MAIOR_IGUAL:
         return variacao >= 0
     return variacao == 0
-
-
-# Formata um ponto como "(2, 6)".
-def formatar_ponto(ponto):
-    return f"({formatar_numero(ponto[0])}, {formatar_numero(ponto[1])})"

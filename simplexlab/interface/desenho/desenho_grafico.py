@@ -8,13 +8,9 @@ função objetivo passando pelo ótimo e o ponto ótimo.
 
 from fractions import Fraction
 
-from simplexlab.algoritmos.metodo_grafico import (
-    calcular_vertices,
-    formatar_ponto,
-    restricoes_nao_negatividade,
-)
-from simplexlab.algoritmos.resultado import ILIMITADO, INVIAVEL
-from simplexlab.modelo.problema import MENOR_IGUAL, Restricao
+from simplexlab.algoritmos.algoritmo_grafico import calcular_vertices, restricoes_nao_negatividade
+from simplexlab.algoritmos.algoritmo_pl import ILIMITADO, INVIAVEL
+from simplexlab.modelo import MENOR_IGUAL, Restricao, formatar_ponto
 
 CORES_RETAS = ["#1f77b4", "#d62728", "#2ca02c", "#9467bd", "#8c564b", "#e377c2", "#17becf"]
 COR_REGIAO = "#9ecae1"

@@ -1,7 +1,7 @@
-from simplexlab.algoritmos.duas_fases import MetodoDuasFases
-from simplexlab.algoritmos.forma_padrao import montar_forma_padrao
-from simplexlab.algoritmos.metodo_grafico import MetodoGrafico
-from simplexlab.algoritmos.simplex import MetodoSimplex
+from simplexlab.algoritmos.algoritmo_duas_fases import MetodoDuasFases
+from simplexlab.algoritmos.algoritmo_grafico import MetodoGrafico
+from simplexlab.algoritmos.algoritmo_pl import montar_forma_padrao
+from simplexlab.algoritmos.algoritmo_simplex import MetodoSimplex
 
 METODO_GRAFICO = "grafico"
 METODO_SIMPLEX = "simplex"

@@ -1,9 +1,9 @@
 import tkinter as tk
 from tkinter import ttk
 
-from simplexlab.algoritmos.resultado import ILIMITADO, INVIAVEL, OTIMO
+from simplexlab.algoritmos.algoritmo_pl import ILIMITADO, INVIAVEL, OTIMO
 from simplexlab.interface.estilos import CORES, FAMILIA, FONTE_MONO, FONTE_SECAO
-from simplexlab.util.formatacao import formatar_decimal, formatar_numero
+from simplexlab.modelo import formatar_decimal, formatar_numero
 
 COR_STATUS = {OTIMO: CORES["sucesso"], ILIMITADO: CORES["alerta"], INVIAVEL: CORES["erro"]}
 
