@@ -81,13 +81,16 @@ class MetodoGrafico:
         melhor = max(valores) if problema.eh_maximizacao else min(valores)
 
         resultado.valor_otimo = melhor
-        resultado.pontos_otimos = [v for v, z in zip(resultado.vertices, valores) if z == melhor]
+        # Em soluções múltiplas os vértices ótimos ficam em ordem de x1.
+        resultado.pontos_otimos = sorted(v for v, z in zip(resultado.vertices, valores) if z == melhor)
         resultado.solucao = dict(zip(problema.variaveis, resultado.pontos_otimos[0]))
 
         if len(resultado.pontos_otimos) > 1:
+            vertices = " e ".join(formatar_ponto(p) for p in resultado.pontos_otimos)
             resultado.observacoes.append(
-                "Mais de um vértice tem o valor ótimo: todos os pontos do segmento "
-                "entre eles também são soluções ótimas (soluções múltiplas)."
+                f"Os vértices {vertices} têm o mesmo valor ótimo Z = "
+                f"{formatar_numero(melhor)}: todos os pontos do segmento entre eles "
+                "também são soluções ótimas (soluções múltiplas)."
             )
 
         x1, x2 = problema.variaveis

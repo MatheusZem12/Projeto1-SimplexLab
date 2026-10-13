@@ -43,7 +43,11 @@ class PainelResultado(ttk.Frame):
         self.modelo.grid(row=1, column=1, sticky="nsew", padx=(16, 0), pady=(4, 0))
 
         self.observacoes = ttk.Label(self, text="", wraplength=700, justify="left")
-        self.observacoes.pack(anchor="w", pady=(12, 0))
+        self.observacoes.pack(fill="x", anchor="w", pady=(12, 0))
+        # A quebra de linha acompanha a largura do painel, para o texto não ser cortado.
+        self.observacoes.bind(
+            "<Configure>", lambda evento: self.observacoes.configure(wraplength=evento.width)
+        )
 
         self.limpar()
 
@@ -57,6 +61,7 @@ class PainelResultado(ttk.Frame):
         for coluna in ("variavel", "valor", "decimal"):
             tabela.column(coluna, anchor="center", width=100)
         tabela.tag_configure("auxiliar", foreground=CORES["texto_suave"])
+        tabela.tag_configure("grupo", background=CORES["cabecalho_tabela"])
         return tabela
 
     # Preenche o painel com o resultado de uma resolução.
@@ -67,20 +72,35 @@ class PainelResultado(ttk.Frame):
                               foreground=COR_STATUS[resultado.status])
         self.metodo.configure(text=f"Método utilizado: {resultado.metodo}")
 
+        # No método gráfico pode haver mais de um vértice ótimo (soluções múltiplas).
+        pontos_otimos = getattr(resultado, "pontos_otimos", [])
+
         if resultado.valor_otimo is not None:
             tipo = "máximo" if problema.eh_maximizacao else "mínimo"
-            self.valor_otimo.configure(
-                text=f"Z {tipo} = {formatar_numero(resultado.valor_otimo)}"
-            )
+            texto = f"Z {tipo} = {formatar_numero(resultado.valor_otimo)}"
+            if len(pontos_otimos) > 1:
+                texto += f"  ({len(pontos_otimos)} vértices ótimos)"
+            self.valor_otimo.configure(text=texto)
 
-        for nome, valor in resultado.solucao.items():
-            self.tabela.insert("", "end", values=(nome, formatar_numero(valor), formatar_decimal(valor)))
+        if len(pontos_otimos) > 1:
+            for numero, ponto in enumerate(pontos_otimos, start=1):
+                self.tabela.insert("", "end", values=(f"Ótimo {numero}", "", ""),
+                                   tags=("grupo",))
+                for nome, valor in zip(problema.variaveis, ponto):
+                    self._inserir_variavel(nome, valor)
+        else:
+            for nome, valor in resultado.solucao.items():
+                self._inserir_variavel(nome, valor)
         for nome, valor in resultado.variaveis_auxiliares.items():
-            self.tabela.insert("", "end", values=(nome, formatar_numero(valor), formatar_decimal(valor)),
-                               tags=("auxiliar",))
+            self._inserir_variavel(nome, valor, tags=("auxiliar",))
 
         self._escrever_modelo(problema.como_texto())
         self.observacoes.configure(text="\n".join(resultado.observacoes))
+
+    # Uma linha da tabela: nome, valor em fração e valor em decimal.
+    def _inserir_variavel(self, nome, valor, tags=()):
+        self.tabela.insert("", "end", values=(nome, formatar_numero(valor), formatar_decimal(valor)),
+                           tags=tags)
 
     # Limpa todas as informações do painel.
     def limpar(self):

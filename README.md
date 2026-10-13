@@ -9,7 +9,8 @@ Leandro Daniel Lopes Camargo.
 
 ## Como executar
 
-Requisitos: Python 3.10 ou superior com Tkinter, e a biblioteca Matplotlib.
+Requisitos: Python 3.10 ou superior com Tkinter, e as bibliotecas de
+`requirements.txt`. Para importar enunciados com IA, também o Codex CLI (veja abaixo).
 
 ```bash
 pip install -r requirements.txt
@@ -35,6 +36,26 @@ x1, x2 >= 0
   consideradas >= 0).
 - Aceita decimais (`0.5` ou `0,5`) e frações (`1/2`).
 
+## Importar enunciado com IA
+
+O botão **Importar enunciado com IA** (ao lado dos exemplos) abre uma janela onde
+você cola o enunciado completo da questão: texto, print (Ctrl+V cola imagem
+também) ou um arquivo de imagem. A IA monta o modelo de PL, que entra na lista de
+exemplos como `IA: <nome do problema>` e já aparece na caixa do modelo. Depois é o
+fluxo normal: conferir o modelo, escolher Simplex ou Gráfico e clicar em Resolver.
+
+A IA usada é o **Codex CLI da própria máquina**, logado na conta do ChatGPT. Não
+existe chave de API no projeto e o uso sai da assinatura de quem está rodando.
+Para preparar (uma vez só):
+
+```bash
+npm install -g @openai/codex
+codex login
+```
+
+Se o `codex` estiver fora do PATH, informe o caminho na variável de ambiente
+`SIMPLEXLAB_CODEX`.
+
 ## Estrutura do projeto
 
 O código é separado em três camadas: o modelo não conhece os algoritmos, e os
@@ -46,6 +67,7 @@ main.py                         ponto de entrada da aplicação
 simplexlab/
     modelo.py                   ProblemaPL e Restricao, leitura do texto digitado,
                                 formatação de números (frações) e exemplos prontos
+    gerador_pl.py               gera o PL de um enunciado usando o Codex CLI
     algoritmos/
         algoritmo_pl.py         partes comuns: Etapa, Resultado e forma padrão
                                 (folga, excesso e artificiais)
@@ -55,7 +77,8 @@ simplexlab/
         resolvedor.py           escolhe o algoritmo adequado
     interface/
         estilos.py              cores, fontes e estilos ttk
-        componentes/            um arquivo por componente da tela
+        componentes/            um arquivo por componente da tela (inclusive a
+                                janela de importar enunciado)
         desenho/
             desenho_grafico.py  desenho do método gráfico com Matplotlib
         telas/
@@ -63,7 +86,8 @@ simplexlab/
 tests/
     test_modelo.py              leitura do modelo e formatação
     test_algoritmos.py          resultados dos métodos, quadros e casos especiais
-    test_interface.py           abre a tela e resolve todos os exemplos
+    test_gerador_pl.py          gerador de PL com um Codex falso (não gasta a assinatura)
+    test_interface.py           abre a tela, resolve os exemplos e importa enunciado
 ```
 
 ## Testes

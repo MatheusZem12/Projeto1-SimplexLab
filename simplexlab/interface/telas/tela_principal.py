@@ -3,7 +3,8 @@ Tela principal do SimplexLab.
 
 Organiza os componentes na janela e faz a ligação entre a interface e os
 algoritmos: lê o modelo digitado, chama o método escolhido e distribui o
-resultado entre as abas Resultado, Gráfico e Etapas.
+resultado entre as abas Resultado, Gráfico e Etapas. O modelo também pode
+vir de um enunciado importado com IA (JanelaImportar).
 """
 
 import tkinter as tk
@@ -13,6 +14,7 @@ from simplexlab.algoritmos.resolvedor import METODO_GRAFICO, resolver
 from simplexlab.interface.componentes.barra_acoes import BarraAcoes
 from simplexlab.interface.componentes.barra_status import BarraStatus
 from simplexlab.interface.componentes.cabecalho import Cabecalho
+from simplexlab.interface.componentes.janela_importar import JanelaImportar
 from simplexlab.interface.componentes.painel_entrada import PainelEntrada
 from simplexlab.interface.componentes.painel_etapas import PainelEtapas
 from simplexlab.interface.componentes.painel_grafico import PainelGrafico
@@ -54,7 +56,10 @@ class TelaPrincipal:
     def _montar_coluna_entrada(self, mestre):
         coluna = ttk.Frame(mestre, padding=(0, 0, 12, 0))
 
-        SeletorExemplos(coluna, ao_carregar=self._carregar_exemplo).pack(fill="x")
+        self.seletor_exemplos = SeletorExemplos(
+            coluna, ao_carregar=self._carregar_exemplo, ao_importar=self._importar_enunciado
+        )
+        self.seletor_exemplos.pack(fill="x")
 
         self.entrada = PainelEntrada(coluna)
         self.entrada.pack(fill="both", expand=True, pady=10)
@@ -118,6 +123,21 @@ class TelaPrincipal:
     def _carregar_exemplo(self, texto):
         self.entrada.definir_texto(texto)
         self.status.informar("Exemplo carregado. Clique em Resolver.")
+
+    # Abre a janela para importar um enunciado e gerar o PL com IA.
+    def _importar_enunciado(self):
+        JanelaImportar(self.janela, ao_gerar=self._receber_modelo_gerado)
+
+    # Coloca o PL gerado pela IA na lista de exemplos e na caixa do modelo.
+    # Daqui em diante o fluxo é o normal: escolher o método e resolver.
+    def _receber_modelo_gerado(self, gerado):
+        self.seletor_exemplos.adicionar(gerado.titulo, gerado.texto)
+        self.entrada.definir_texto(gerado.texto)
+        if gerado.erro:
+            self.status.erro(f"O PL gerado tem um erro de formato, corrija na caixa: {gerado.erro}")
+        else:
+            self.status.informar("PL gerado pela IA. Confira o modelo, escolha o método e "
+                                 "clique em Resolver.")
 
     # Limpa a entrada e todas as abas.
     def _limpar(self):
