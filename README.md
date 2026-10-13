@@ -37,20 +37,21 @@ x1, x2 >= 0
 
 ## Estrutura do projeto
 
+O código é separado em três camadas: o modelo não conhece os algoritmos, e os
+algoritmos não conhecem a interface. Assim dá para testar os cálculos sem abrir
+a janela.
+
 ```
 main.py                         ponto de entrada da aplicação
 simplexlab/
-    modelo/
-        problema.py             classes ProblemaPL e Restricao
-        leitor_modelo.py        converte o texto digitado em um ProblemaPL
-        exemplos.py             problemas prontos para teste
+    modelo.py                   ProblemaPL e Restricao, leitura do texto digitado,
+                                formatação de números (frações) e exemplos prontos
     algoritmos/
-        resultado.py            classes de resultado e de etapa
-        forma_padrao.py         adiciona folga, excesso e artificiais
-        quadro_simplex.py       quadro do Simplex e o pivoteamento
-        simplex.py              Método Simplex
-        duas_fases.py           Simplex de Duas Fases (restrições >= e =)
-        metodo_grafico.py       Método Gráfico (2 variáveis)
+        algoritmo_pl.py         partes comuns: Etapa, Resultado e forma padrão
+                                (folga, excesso e artificiais)
+        algoritmo_simplex.py    quadro do Simplex, pivoteamento e Método Simplex
+        algoritmo_duas_fases.py Simplex de Duas Fases (restrições >= e =)
+        algoritmo_grafico.py    Método Gráfico (2 variáveis)
         resolvedor.py           escolhe o algoritmo adequado
     interface/
         estilos.py              cores, fontes e estilos ttk
@@ -59,8 +60,16 @@ simplexlab/
             desenho_grafico.py  desenho do método gráfico com Matplotlib
         telas/
             tela_principal.py   monta a tela e liga interface e algoritmos
-    util/
-        formatacao.py           formatação de números (frações) e expressões
+tests/
+    test_modelo.py              leitura do modelo e formatação
+    test_algoritmos.py          resultados dos métodos, quadros e casos especiais
+    test_interface.py           abre a tela e resolve todos os exemplos
+```
+
+## Testes
+
+```bash
+python -m pytest
 ```
 
 ## O que o sistema mostra
