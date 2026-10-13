@@ -11,6 +11,11 @@ Convenção usada (a mesma da aula):
     - o problema é sempre tratado como maximização;
     - entra na base a variável com o coeficiente mais negativo na linha Z;
     - sai da base a variável com a menor razão b / coluna (só valores positivos).
+
+Se o Simplex voltar a uma base que já visitou (ciclagem, só acontece em
+problemas degenerados), passa a usar a regra de Bland: entra a primeira
+variável com coeficiente negativo e, no empate da razão, sai a de menor
+índice. Essa regra sempre termina.
 """
 
 from fractions import Fraction
@@ -32,13 +37,16 @@ class QuadroSimplex:
         self.objetivo = list(linha_objetivo)
         self.nome_objetivo = nome_objetivo
 
-    # Variável que entra: coluna com o coeficiente mais negativo na linha Z.
+    # Variável que entra: coluna com o coeficiente mais negativo na linha Z
+    # (ou a primeira negativa, na regra de Bland).
     # Retorna None quando não há negativos, ou seja, o quadro já é ótimo.
-    def coluna_que_entra(self):
+    def coluna_que_entra(self, bland=False):
         escolhida = None
         menor = Fraction(0)
         for j, valor in enumerate(self.objetivo[:-1]):
             if valor < menor:
+                if bland:
+                    return j
                 menor = valor
                 escolhida = j
         return escolhida
@@ -54,13 +62,19 @@ class QuadroSimplex:
                 resultado.append(None)
         return resultado
 
-    # Variável que sai: linha com a menor razão. Retorna None quando nenhuma
-    # linha tem valor positivo na coluna (problema ilimitado).
-    def linha_que_sai(self, coluna):
+    # Variável que sai: linha com a menor razão. No empate fica a primeira
+    # linha, ou, na regra de Bland, a variável básica de menor índice.
+    # Retorna None quando nenhuma linha tem valor positivo na coluna
+    # (problema ilimitado).
+    def linha_que_sai(self, coluna, bland=False):
         escolhida = None
         menor = None
         for i, razao in enumerate(self.razoes(coluna)):
-            if razao is not None and (menor is None or razao < menor):
+            if razao is None:
+                continue
+            empate_bland = (bland and razao == menor
+                            and self.base[i] < self.base[escolhida])
+            if menor is None or razao < menor or empate_bland:
                 menor = razao
                 escolhida = i
         return escolhida
@@ -164,23 +178,35 @@ class MetodoSimplex:
     # Retorna OTIMO ou ILIMITADO.
     def executar_iteracoes(self, quadro, etapas, prefixo=""):
         titulo = f"{prefixo}Quadro inicial"
+        bases_visitadas = set()
+        bland = False
 
         for iteracao in range(1, LIMITE_ITERACOES + 1):
-            coluna = quadro.coluna_que_entra()
+            base_atual = frozenset(quadro.base)
+            aviso_ciclo = not bland and base_atual in bases_visitadas
+            bland = bland or aviso_ciclo
+            bases_visitadas.add(base_atual)
+
+            coluna = quadro.coluna_que_entra(bland)
             if coluna is None:
                 etapas.append(quadro.registrar(titulo, self._explicar_otimo(quadro)))
                 return OTIMO
 
-            linha = quadro.linha_que_sai(coluna)
+            linha = quadro.linha_que_sai(coluna, bland)
             if linha is None:
                 etapas.append(quadro.registrar(
                     titulo, self._explicar_ilimitado(quadro, coluna), coluna_pivo=coluna
                 ))
                 return ILIMITADO
 
-            etapas.append(quadro.registrar(
-                titulo, self._explicar_pivo(quadro, linha, coluna), linha, coluna
-            ))
+            descricao = self._explicar_pivo(quadro, linha, coluna, bland)
+            if aviso_ciclo:
+                descricao = (
+                    "Este quadro tem a mesma base de um quadro anterior: o Simplex "
+                    "entrou em ciclo (problema degenerado). A partir daqui usamos a "
+                    "regra de Bland, que garante que o método termina.\n\n" + descricao
+                )
+            etapas.append(quadro.registrar(titulo, descricao, linha, coluna))
             quadro.pivotear(linha, coluna)
             titulo = f"{prefixo}Iteração {iteracao}"
 
@@ -221,12 +247,13 @@ class MetodoSimplex:
         return resultado
 
     # Texto da etapa em que há pivoteamento: quem entra, teste da razão e quem sai.
-    def _explicar_pivo(self, quadro, linha, coluna):
+    def _explicar_pivo(self, quadro, linha, coluna, bland=False):
         entra = quadro.colunas[coluna]
         sai = quadro.colunas[quadro.base[linha]]
+        criterio = "primeiro coeficiente negativo" if bland else "coeficiente mais negativo"
         texto = [
             f"Variável que entra: {entra} "
-            f"(coeficiente mais negativo na linha {quadro.nome_objetivo}: "
+            f"({criterio} na linha {quadro.nome_objetivo}: "
             f"{formatar_numero(quadro.objetivo[coluna])})",
             "",
             f"Teste da razão (b / coluna {entra}):",
