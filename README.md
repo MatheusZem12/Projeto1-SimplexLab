@@ -56,6 +56,15 @@ claude   # e faça o login com /login
 Se o `claude` estiver fora do PATH, informe o caminho na variável de ambiente
 `SIMPLEXLAB_CLAUDE`.
 
+Cada importação fica guardada em `historico_ia/pl_AAAAMMDD_HHMM/`, com as imagens do
+enunciado e um `resposta.json` (enunciado, PL gerado, retorno completo do Claude e o
+`session_id`). Para reabrir a conversa com o Claude:
+
+```bash
+cd historico_ia
+claude --resume <session_id>
+```
+
 ## Estrutura do projeto
 
 O código é separado em três camadas: o modelo não conhece os algoritmos, e os

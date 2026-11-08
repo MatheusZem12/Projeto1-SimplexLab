@@ -3,3 +3,6 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
+
+# Histórico local das importações com IA (imagens e respostas do Claude)
+historico_ia/

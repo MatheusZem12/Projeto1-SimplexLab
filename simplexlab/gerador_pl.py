@@ -17,13 +17,24 @@ import json
 import os
 import shutil
 import subprocess
-import tempfile
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from simplexlab.modelo import ErroLeitura, ler_modelo
 
 TEMPO_LIMITE = 300  # segundos
+
+# Histórico das importações. Cada geração ganha uma pasta própria, que nunca é
+# apagada:
+#     historico_ia/pl_AAAAMMDD_HHMM/
+#         imagem1.png      as imagens do enunciado (se houver)
+#         resposta.json    o enunciado, o PL devolvido e o retorno completo do Claude
+# O Claude roda a partir de historico_ia/, então as sessões ficam no histórico do
+# Claude Code dessa pasta. Para reabrir uma, entre em historico_ia/ e rode
+# "claude --resume <session_id>" (o session_id está no resposta.json).
+PASTA_PROJETO = Path(__file__).resolve().parent.parent
+PASTA_HISTORICO = PASTA_PROJETO / "historico_ia"
 
 INSTRUCOES = """\
 Você é um professor de Pesquisa Operacional. Leia o enunciado abaixo (texto e/ou
@@ -100,41 +111,82 @@ def gerar_pl(texto="", imagens=(), processo_iniciado=None):
         raise ErroIA("Cole o texto do enunciado ou uma imagem antes de gerar o PL.")
 
     claude = encontrar_claude()
-    with tempfile.TemporaryDirectory(prefix="simplexlab_") as pasta:
-        pasta = Path(pasta)
+    pasta = _criar_pasta_historico()
 
-        # O Claude não recebe imagem por parâmetro: copiamos cada uma para a
-        # pasta de trabalho e pedimos para ele abrir com a ferramenta Read.
-        anexos = []
-        for numero, imagem in enumerate(imagens, start=1):
-            imagem = Path(imagem)
-            destino = pasta / f"imagem{numero}{imagem.suffix.lower() or '.png'}"
-            shutil.copyfile(imagem, destino)
-            anexos.append(destino)
+    # O Claude não recebe imagem por parâmetro: guardamos cada uma na pasta do
+    # histórico e pedimos para ele abrir com a ferramenta Read.
+    anexos = []
+    for numero, imagem in enumerate(imagens, start=1):
+        imagem = Path(imagem)
+        destino = pasta / f"imagem{numero}{imagem.suffix.lower() or '.png'}"
+        shutil.copyfile(imagem, destino)
+        anexos.append(destino)
 
-        comando = [
-            claude, "-p",
-            "--output-format", "json",
-            "--json-schema", json.dumps(ESQUEMA_RESPOSTA),
-            "--no-session-persistence",
-            "--strict-mcp-config",
-            # Só a leitura de arquivos fica disponível (para abrir as imagens).
-            "--tools=Read",
-            "--allowedTools=Read",
-            "--permission-mode", "dontAsk",
-        ]
+    comando = [
+        claude, "-p",
+        "--output-format", "json",
+        "--json-schema", json.dumps(ESQUEMA_RESPOSTA),
+        "--name", f"SimplexLab: {pasta.name}",
+        "--strict-mcp-config",
+        # Só a leitura de arquivos fica disponível (para abrir as imagens).
+        "--tools=Read",
+        "--allowedTools=Read",
+        "--permission-mode", "dontAsk",
+    ]
 
-        prompt = INSTRUCOES + "\nEnunciado:\n" + (texto or "(veja a imagem anexada)")
-        if anexos:
-            prompt += "\n\nImagens do enunciado (abra cada uma com a ferramenta Read):\n"
-            prompt += "\n".join(str(anexo) for anexo in anexos)
+    prompt = INSTRUCOES + "\nEnunciado:\n" + (texto or "(veja a imagem anexada)")
+    if anexos:
+        prompt += "\n\nImagens do enunciado (abra cada uma com a ferramenta Read):\n"
+        prompt += "\n".join(str(anexo) for anexo in anexos)
 
-        saida = _executar(comando, prompt, pasta, processo_iniciado)
-        return _interpretar_resposta(_extrair_resultado(saida))
+    registro = {
+        "data": datetime.now().isoformat(timespec="seconds"),
+        "enunciado": texto,
+        "imagens": [anexo.name for anexo in anexos],
+    }
+    try:
+        saida = _executar(comando, prompt, PASTA_HISTORICO, processo_iniciado, registro)
+        gerado = _interpretar_resposta(_extrair_resultado(saida))
+    except ErroIA as erro:
+        registro["erro"] = str(erro)
+        _salvar_registro(pasta, registro)
+        raise
+
+    registro["titulo"] = gerado.titulo
+    registro["modelo"] = gerado.texto
+    if gerado.erro:
+        registro["erro_formato"] = gerado.erro
+    _salvar_registro(pasta, registro)
+    return gerado
+
+
+# Cria historico_ia/pl_AAAAMMDD_HHMM. Se já existir uma no mesmo minuto,
+# acrescenta _2, _3, ...
+def _criar_pasta_historico():
+    PASTA_HISTORICO.mkdir(parents=True, exist_ok=True)
+    nome = "pl_" + datetime.now().strftime("%Y%m%d_%H%M")
+    pasta = PASTA_HISTORICO / nome
+    numero = 2
+    while pasta.exists():
+        pasta = PASTA_HISTORICO / f"{nome}_{numero}"
+        numero += 1
+    pasta.mkdir()
+    return pasta
+
+
+# Grava o resposta.json da pasta do histórico. O session_id vem do retorno do
+# Claude e serve para reabrir a conversa com "claude --resume".
+def _salvar_registro(pasta, registro):
+    retorno = registro.get("retorno_claude")
+    if isinstance(retorno, dict) and retorno.get("session_id"):
+        registro = {"session_id": retorno["session_id"], **registro}
+    conteudo = json.dumps(registro, ensure_ascii=False, indent=2)
+    (pasta / "resposta.json").write_text(conteudo + "\n", encoding="utf-8")
 
 
 # Roda o Claude passando o prompt pela entrada padrão e devolve o stdout.
-def _executar(comando, prompt, pasta, processo_iniciado):
+# O retorno bruto também vai para o registro do histórico.
+def _executar(comando, prompt, pasta, processo_iniciado, registro):
     try:
         processo = subprocess.Popen(
             comando,
@@ -158,6 +210,11 @@ def _executar(comando, prompt, pasta, processo_iniciado):
         processo.kill()
         processo.communicate()
         raise ErroIA(f"O Claude passou de {TEMPO_LIMITE} segundos sem responder.")
+
+    try:
+        registro["retorno_claude"] = json.loads(saida)
+    except json.JSONDecodeError:
+        registro["retorno_claude"] = saida
 
     if processo.returncode != 0:
         # Com --output-format json o motivo do erro costuma vir no stdout.

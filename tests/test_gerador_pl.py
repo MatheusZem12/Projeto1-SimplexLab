@@ -23,7 +23,7 @@ def saida_claude(estruturado=None, resultado="", erro=False):
 
 
 # Cria um executável que imita o "claude -p": guarda os argumentos, o prompt
-# e a pasta de trabalho recebidos e imprime a resposta no stdout.
+# e a pasta de trabalho e imprime a resposta no stdout.
 @pytest.fixture
 def claude_falso(tmp_path, monkeypatch):
     registro = tmp_path / "chamada.json"
@@ -34,8 +34,7 @@ def claude_falso(tmp_path, monkeypatch):
             "import json, os, sys\n"
             "args = sys.argv[1:]\n"
             "prompt = sys.stdin.read()\n"
-            "arquivos = sorted(os.listdir('.'))\n"
-            f"json.dump({{'args': args, 'prompt': prompt, 'arquivos': arquivos}},"
+            f"json.dump({{'args': args, 'prompt': prompt, 'cwd': os.getcwd()}},"
             f" open({str(registro)!r}, 'w'))\n"
             f"sys.stderr.write({stderr!r})\n"
             f"sys.stdout.write({resposta!r})\n"
@@ -47,6 +46,8 @@ def claude_falso(tmp_path, monkeypatch):
         script.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{programa}" "$@"\n')
         script.chmod(0o755)
         monkeypatch.setenv("SIMPLEXLAB_CLAUDE", str(script))
+        # O histórico vai para a pasta temporária do teste, não para o projeto.
+        monkeypatch.setattr(gerador_pl, "PASTA_HISTORICO", tmp_path / "historico_ia")
         return lambda: json.loads(registro.read_text())
 
     return criar
@@ -65,7 +66,8 @@ def test_gera_modelo_a_partir_de_texto(claude_falso):
     assert args[0] == "-p"
     assert args[args.index("--output-format") + 1] == "json"
     assert json.loads(args[args.index("--json-schema") + 1])["required"] == ["titulo", "modelo"]
-    assert "--no-session-persistence" in args
+    assert "--no-session-persistence" not in args
+    assert chamada()["cwd"] == str(gerador_pl.PASTA_HISTORICO)
     assert "--tools=Read" in args
     assert "Uma fábrica produz mesas e cadeiras" in chamada()["prompt"]
 
@@ -77,10 +79,39 @@ def test_imagens_vao_para_a_pasta_de_trabalho(claude_falso, tmp_path):
 
     gerar_pl("", [imagem])
 
-    assert chamada()["arquivos"] == ["imagem1.png"]
+    pastas = list(gerador_pl.PASTA_HISTORICO.glob("pl_*"))
+    assert len(pastas) == 1
+    assert sorted(a.name for a in pastas[0].iterdir()) == ["imagem1.png", "resposta.json"]
     prompt = chamada()["prompt"]
     assert "veja a imagem anexada" in prompt
-    assert "imagem1.png" in prompt and "Read" in prompt
+    assert str(pastas[0] / "imagem1.png") in prompt and "Read" in prompt
+
+
+def test_historico_guarda_resposta_e_session_id(claude_falso):
+    saida = json.loads(saida_claude({"titulo": "Mesas", "modelo": MODELO}))
+    saida["session_id"] = "abc-123"
+    claude_falso(json.dumps(saida))
+
+    gerar_pl("Uma fábrica produz mesas")
+    gerar_pl("Outro enunciado no mesmo minuto")
+
+    pastas = sorted(gerador_pl.PASTA_HISTORICO.glob("pl_*"))
+    assert len(pastas) == 2 and pastas[1].name.endswith("_2")
+    registro = json.loads((pastas[0] / "resposta.json").read_text(encoding="utf-8"))
+    assert registro["session_id"] == "abc-123"
+    assert registro["enunciado"] == "Uma fábrica produz mesas"
+    assert registro["titulo"] == "Mesas" and registro["modelo"] == MODELO
+    assert registro["retorno_claude"]["session_id"] == "abc-123"
+
+
+def test_historico_guarda_erro(claude_falso):
+    claude_falso("não é json")
+    with pytest.raises(ErroIA):
+        gerar_pl("enunciado")
+    pasta = next(gerador_pl.PASTA_HISTORICO.glob("pl_*"))
+    registro = json.loads((pasta / "resposta.json").read_text(encoding="utf-8"))
+    assert "formato esperado" in registro["erro"]
+    assert registro["retorno_claude"] == "não é json"
 
 
 def test_aceita_resposta_em_texto_sem_structured_output(claude_falso):
