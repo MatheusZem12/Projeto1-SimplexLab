@@ -10,7 +10,7 @@ Leandro Daniel Lopes Camargo.
 ## Como executar
 
 Requisitos: Python 3.10 ou superior com Tkinter, e as bibliotecas de
-`requirements.txt`. Para importar enunciados com IA, também o Codex CLI (veja abaixo).
+`requirements.txt`. Para importar enunciados com IA, também o Claude Code (veja abaixo).
 
 ```bash
 pip install -r requirements.txt
@@ -44,17 +44,17 @@ também) ou um arquivo de imagem. A IA monta o modelo de PL, que entra na lista 
 exemplos como `IA: <nome do problema>` e já aparece na caixa do modelo. Depois é o
 fluxo normal: conferir o modelo, escolher Simplex ou Gráfico e clicar em Resolver.
 
-A IA usada é o **Codex CLI da própria máquina**, logado na conta do ChatGPT. Não
+A IA usada é o **Claude Code da própria máquina**, logado na conta do Claude. Não
 existe chave de API no projeto e o uso sai da assinatura de quem está rodando.
 Para preparar (uma vez só):
 
 ```bash
-npm install -g @openai/codex
-codex login
+npm install -g @anthropic-ai/claude-code
+claude   # e faça o login com /login
 ```
 
-Se o `codex` estiver fora do PATH, informe o caminho na variável de ambiente
-`SIMPLEXLAB_CODEX`.
+Se o `claude` estiver fora do PATH, informe o caminho na variável de ambiente
+`SIMPLEXLAB_CLAUDE`.
 
 ## Estrutura do projeto
 
@@ -67,7 +67,7 @@ main.py                         ponto de entrada da aplicação
 simplexlab/
     modelo.py                   ProblemaPL e Restricao, leitura do texto digitado,
                                 formatação de números (frações) e exemplos prontos
-    gerador_pl.py               gera o PL de um enunciado usando o Codex CLI
+    gerador_pl.py               gera o PL de um enunciado usando o Claude Code
     algoritmos/
         algoritmo_pl.py         partes comuns: Etapa, Resultado e forma padrão
                                 (folga, excesso e artificiais)
@@ -86,7 +86,7 @@ simplexlab/
 tests/
     test_modelo.py              leitura do modelo e formatação
     test_algoritmos.py          resultados dos métodos, quadros e casos especiais
-    test_gerador_pl.py          gerador de PL com um Codex falso (não gasta a assinatura)
+    test_gerador_pl.py          gerador de PL com um Claude falso (não gasta a assinatura)
     test_interface.py           abre a tela, resolve os exemplos e importa enunciado
 ```
 

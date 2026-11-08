@@ -13,7 +13,7 @@ from simplexlab.interface.estilos import CORES, FONTE_MONO
 
 DICA = (
     "Cole o enunciado completo: texto, imagem (print da questão) ou os dois.\n"
-    "Ctrl+V na caixa cola texto ou imagem. O PL é gerado pelo Codex da sua conta do ChatGPT."
+    "Ctrl+V na caixa cola texto ou imagem. O PL é gerado pelo Claude da sua conta."
 )
 TIPOS_IMAGEM = [("Imagens", "*.png *.jpg *.jpeg *.webp *.gif *.bmp"), ("Todos os arquivos", "*")]
 EXTENSOES_IMAGEM = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
@@ -22,7 +22,7 @@ TAMANHO_MINIATURA = (160, 110)
 
 # Janela para importar um enunciado e gerar o modelo de PL com IA. Quando o
 # modelo fica pronto, chama ao_gerar(ModeloGerado) e fecha.
-# A chamada ao Codex roda em outra thread para a tela não travar.
+# A chamada ao Claude roda em outra thread para a tela não travar.
 class JanelaImportar(tk.Toplevel):
 
     def __init__(self, mestre, ao_gerar):
@@ -163,7 +163,7 @@ class JanelaImportar(tk.Toplevel):
 
         self.botao_remover.configure(state="normal" if self._imagens else "disabled")
 
-    # Botão "Gerar PL": chama o Codex em outra thread.
+    # Botão "Gerar PL": chama o Claude em outra thread.
     def _gerar(self):
         texto = self.texto.get("1.0", "end").strip()
         if not texto and not self._imagens:
@@ -174,7 +174,7 @@ class JanelaImportar(tk.Toplevel):
         self.botao_gerar.configure(state="disabled")
         self.progresso.pack(fill="x", pady=(8, 0), before=self.status)
         self.progresso.start(12)
-        self._informar("Gerando o PL com o Codex... isso pode levar alguns segundos.")
+        self._informar("Gerando o PL com o Claude... isso pode levar alguns segundos.")
 
         imagens = list(self._imagens)
         threading.Thread(target=self._chamar_ia, args=(texto, imagens), daemon=True).start()
@@ -218,7 +218,7 @@ class JanelaImportar(tk.Toplevel):
         self.status.configure(text=mensagem,
                               foreground=CORES["erro"] if erro else CORES["texto_suave"])
 
-    # Fecha a janela; se o Codex ainda estiver rodando, encerra o processo.
+    # Fecha a janela; se o Claude ainda estiver rodando, encerra o processo.
     def _cancelar(self):
         if self._gerando and self._processo is not None and self._processo.poll() is None:
             self._processo.kill()
