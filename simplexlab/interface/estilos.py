@@ -22,12 +22,12 @@ CORES = {
 FAMILIA = "Segoe UI" if sys.platform == "win32" else "DejaVu Sans"
 FAMILIA_MONO = "Consolas" if sys.platform == "win32" else "DejaVu Sans Mono"
 
-FONTE_PADRAO = (FAMILIA, 10)
-FONTE_NEGRITO = (FAMILIA, 10, "bold")
-FONTE_TITULO = (FAMILIA, 18, "bold")
-FONTE_SUBTITULO = (FAMILIA, 10)
-FONTE_SECAO = (FAMILIA, 12, "bold")
-FONTE_MONO = (FAMILIA_MONO, 11)
+FONTE_PADRAO = (FAMILIA, 13)
+FONTE_NEGRITO = (FAMILIA, 13, "bold")
+FONTE_TITULO = (FAMILIA, 22, "bold")
+FONTE_SUBTITULO = (FAMILIA, 13)
+FONTE_SECAO = (FAMILIA, 15, "bold")
+FONTE_MONO = (FAMILIA_MONO, 13)
 
 
 # Configura os estilos ttk usados pelos componentes da aplicação.
@@ -62,5 +62,5 @@ def aplicar_estilos(raiz):
 
     estilo.configure("TNotebook", background=CORES["fundo"])
     estilo.configure("TNotebook.Tab", padding=(14, 6))
-    estilo.configure("Treeview", rowheight=24)
+    estilo.configure("Treeview", rowheight=30)
     estilo.configure("Treeview.Heading", font=FONTE_NEGRITO)

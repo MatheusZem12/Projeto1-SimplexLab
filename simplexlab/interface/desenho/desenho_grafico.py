@@ -36,7 +36,7 @@ def desenhar_metodo_grafico(eixo, problema, resultado):
     eixo.set_ylabel(x2)
     eixo.set_title(_titulo(resultado))
     eixo.grid(True, linestyle=":", alpha=0.6)
-    eixo.legend(loc="upper left", bbox_to_anchor=(1.02, 1), fontsize=8, borderaxespad=0)
+    eixo.legend(loc="upper left", bbox_to_anchor=(1.02, 1), fontsize=10, borderaxespad=0)
 
 
 # Define até onde os eixos vão: considera os vértices e os pontos em que as
@@ -106,7 +106,7 @@ def _desenhar_vertices(eixo, resultado):
         x, y = float(ponto[0]), float(ponto[1])
         eixo.plot(x, y, "o", color="#333333", markersize=5)
         eixo.annotate(formatar_ponto(ponto), (x, y), textcoords="offset points",
-                      xytext=(6, 6), fontsize=8)
+                      xytext=(6, 6), fontsize=10)
 
 
 # Desenha a reta da função objetivo passando pelo ponto ótimo (Z = valor ótimo)

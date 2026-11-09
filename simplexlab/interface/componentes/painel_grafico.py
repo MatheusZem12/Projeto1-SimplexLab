@@ -31,5 +31,5 @@ class PainelGrafico(ttk.Frame):
     def limpar(self, mensagem="Resolva um modelo com 2 variáveis pelo Método Gráfico."):
         self.eixo.clear()
         self.eixo.set_axis_off()
-        self.eixo.text(0.5, 0.5, mensagem, ha="center", va="center", fontsize=11, color="#666666")
+        self.eixo.text(0.5, 0.5, mensagem, ha="center", va="center", fontsize=13, color="#666666")
         self.canvas.draw_idle()

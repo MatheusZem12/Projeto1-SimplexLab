@@ -21,7 +21,7 @@ class PainelResultado(ttk.Frame):
         self.metodo = ttk.Label(self, text="", style="Dica.TLabel")
         self.metodo.pack(anchor="w", pady=(2, 10))
 
-        self.valor_otimo = ttk.Label(self, text="", font=(FAMILIA, 14, "bold"))
+        self.valor_otimo = ttk.Label(self, text="", font=(FAMILIA, 18, "bold"))
         self.valor_otimo.pack(anchor="w", pady=(0, 10))
 
         conteudo = ttk.Frame(self)
