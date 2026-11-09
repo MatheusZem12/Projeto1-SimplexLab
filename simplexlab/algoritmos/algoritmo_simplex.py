@@ -26,6 +26,19 @@ from simplexlab.modelo import formatar_numero, formatar_resultado
 LIMITE_ITERACOES = 100
 
 
+# Número formatado, entre parênteses quando é negativo (ex.: 3 - (-2) x 1).
+def _entre_parenteses(valor):
+    texto = formatar_numero(valor)
+    return f"({texto})" if valor < 0 else texto
+
+
+# Junta o cálculo que gerou o quadro com a explicação da etapa.
+def _com_calculos(calculos, descricao):
+    if not calculos:
+        return descricao
+    return calculos + "\n\n" + "-" * 50 + "\n\n" + descricao
+
+
 class QuadroSimplex:
 
     # Recebe as colunas (nomes), as linhas [A | b], a base (índice da coluna
@@ -103,11 +116,73 @@ class QuadroSimplex:
 
     # Zera, na linha da função objetivo, os coeficientes das variáveis básicas.
     # É necessário quando a linha Z é montada com variáveis que já estão na base.
+    # Devolve o texto com os cálculos feitos (vazio se nada mudou).
     def ajustar_linha_objetivo(self):
+        nome = self.nome_objetivo
+        texto = []
         for i, j in enumerate(self.base):
             fator = self.objetivo[j]
             if fator != 0:
-                self.objetivo = [a - fator * b for a, b in zip(self.objetivo, self.linhas[i])]
+                novo = [a - fator * b for a, b in zip(self.objetivo, self.linhas[i])]
+                texto += [
+                    f"Zerar o coeficiente de {self.colunas[j]} na linha {nome}:",
+                    f"Nova linha {nome} = linha {nome} - {_entre_parenteses(fator)} "
+                    f"x linha {self.colunas[j]}",
+                ]
+                texto += self._calculo_subtracao(self.objetivo, self.linhas[i], fator, novo)
+                texto.append("")
+                self.objetivo = novo
+        if not texto:
+            return ""
+        return "Cálculo da linha " + nome + ":\n\n" + "\n".join(texto).rstrip()
+
+    # Monta o texto com o cálculo de cada nova linha do pivoteamento.
+    # Precisa ser chamado ANTES de pivotear, pois usa os valores atuais.
+    def explicar_pivoteamento(self, linha_pivo, coluna_pivo):
+        pivo = self.linhas[linha_pivo][coluna_pivo]
+        entra = self.colunas[coluna_pivo]
+        sai = self.colunas[self.base[linha_pivo]]
+        antiga = self.linhas[linha_pivo]
+        nova_pivo = [valor / pivo for valor in antiga]
+
+        texto = [
+            f"Cálculo das novas linhas (pivô = {formatar_numero(pivo)}, "
+            f"{entra} entra no lugar de {sai}):",
+            "",
+            f"Nova linha {entra} (NL) = linha {sai} / {_entre_parenteses(pivo)}",
+        ]
+        for nome, valor, novo in zip(self._nomes_colunas(), antiga, nova_pivo):
+            texto.append(f"    {nome}: {formatar_numero(valor)} / {_entre_parenteses(pivo)}"
+                         f" = {formatar_numero(novo)}")
+
+        outras = [(self.colunas[self.base[i]], linha)
+                  for i, linha in enumerate(self.linhas) if i != linha_pivo]
+        outras.append((self.nome_objetivo, self.objetivo))
+
+        for nome_linha, linha in outras:
+            fator = linha[coluna_pivo]
+            texto.append("")
+            if fator == 0:
+                texto.append(f"Nova linha {nome_linha}: o valor na coluna {entra} já é 0, "
+                             "a linha não muda.")
+                continue
+            novo = [a - fator * b for a, b in zip(linha, nova_pivo)]
+            texto.append(f"Nova linha {nome_linha} = linha {nome_linha} - "
+                         f"{_entre_parenteses(fator)} x NL")
+            texto += self._calculo_subtracao(linha, nova_pivo, fator, novo)
+        return "\n".join(texto)
+
+    # Nomes das colunas do quadro, incluindo a coluna b.
+    def _nomes_colunas(self):
+        return self.colunas + ["b"]
+
+    # Uma linha de texto por coluna: a - (k) x b = resultado.
+    def _calculo_subtracao(self, linha, outra, fator, novo):
+        k = _entre_parenteses(fator)
+        return [
+            f"    {nome}: {formatar_numero(a)} - {k} x {_entre_parenteses(b)} = {formatar_numero(n)}"
+            for nome, a, b, n in zip(self._nomes_colunas(), linha, outra, novo)
+        ]
 
     # Remove colunas do quadro (usado para tirar as artificiais na Fase 2).
     def remover_colunas(self, indices):
@@ -176,8 +251,11 @@ class MetodoSimplex:
     # Laço principal do Simplex. A cada passo registra o quadro atual com o
     # pivô destacado e a explicação da escolha, e depois faz o pivoteamento.
     # Retorna OTIMO ou ILIMITADO.
-    def executar_iteracoes(self, quadro, etapas, prefixo=""):
+    # calculos_iniciais: texto com as contas que geraram o quadro inicial
+    # (usado no Duas Fases, quando a linha W/Z é ajustada antes).
+    def executar_iteracoes(self, quadro, etapas, prefixo="", calculos_iniciais=""):
         titulo = f"{prefixo}Quadro inicial"
+        calculos = calculos_iniciais
         bases_visitadas = set()
         bland = False
 
@@ -189,13 +267,16 @@ class MetodoSimplex:
 
             coluna = quadro.coluna_que_entra(bland)
             if coluna is None:
-                etapas.append(quadro.registrar(titulo, self._explicar_otimo(quadro)))
+                etapas.append(quadro.registrar(
+                    titulo, _com_calculos(calculos, self._explicar_otimo(quadro))
+                ))
                 return OTIMO
 
             linha = quadro.linha_que_sai(coluna, bland)
             if linha is None:
                 etapas.append(quadro.registrar(
-                    titulo, self._explicar_ilimitado(quadro, coluna), coluna_pivo=coluna
+                    titulo, _com_calculos(calculos, self._explicar_ilimitado(quadro, coluna)),
+                    coluna_pivo=coluna,
                 ))
                 return ILIMITADO
 
@@ -206,7 +287,10 @@ class MetodoSimplex:
                     "entrou em ciclo (problema degenerado). A partir daqui usamos a "
                     "regra de Bland, que garante que o método termina.\n\n" + descricao
                 )
-            etapas.append(quadro.registrar(titulo, descricao, linha, coluna))
+            etapas.append(quadro.registrar(
+                titulo, _com_calculos(calculos, descricao), linha, coluna
+            ))
+            calculos = quadro.explicar_pivoteamento(linha, coluna)
             quadro.pivotear(linha, coluna)
             titulo = f"{prefixo}Iteração {iteracao}"
 

@@ -34,8 +34,8 @@ class MetodoDuasFases(MetodoSimplex):
                 observacoes=["Ao final da Fase 1 ainda há variáveis artificiais com valor positivo."],
             )
 
-        self._preparar_fase_2(quadro, forma, etapas)
-        status = self.executar_iteracoes(quadro, etapas, "Fase 2 - ")
+        calculos = self._preparar_fase_2(quadro, forma, etapas)
+        status = self.executar_iteracoes(quadro, etapas, "Fase 2 - ", calculos)
         return self.montar_resultado(problema, quadro, status, etapas)
 
     # Fase 1: monta a linha W, zera as artificiais que estão na base e roda
@@ -57,8 +57,8 @@ class MetodoDuasFases(MetodoSimplex):
             "linha em que há uma artificial na base.",
         ))
 
-        quadro.ajustar_linha_objetivo()
-        self.executar_iteracoes(quadro, etapas, "Fase 1 - ")
+        calculos = quadro.ajustar_linha_objetivo()
+        self.executar_iteracoes(quadro, etapas, "Fase 1 - ", calculos)
 
         # O valor em b da linha W é -W, por causa da convenção de maximização.
         w = -quadro.valor_objetivo()
@@ -80,6 +80,7 @@ class MetodoDuasFases(MetodoSimplex):
 
     # Fase 2: tira as artificiais do quadro, coloca a função objetivo original
     # na última linha e zera os coeficientes das variáveis básicas.
+    # Devolve o texto com os cálculos feitos na linha Z.
     def _preparar_fase_2(self, quadro, forma, etapas):
         self._retirar_artificiais_da_base(quadro, forma.artificiais)
         quadro.remover_colunas(forma.artificiais)
@@ -95,7 +96,7 @@ class MetodoDuasFases(MetodoSimplex):
             "As variáveis básicas que tiverem coeficiente diferente de zero na "
             "linha Z são zeradas com operações entre linhas antes de continuar.",
         ))
-        quadro.ajustar_linha_objetivo()
+        return quadro.ajustar_linha_objetivo()
 
     # Pode acontecer de uma artificial terminar a Fase 1 na base com valor zero.
     # Nesse caso trocamos ela por qualquer variável não artificial da mesma

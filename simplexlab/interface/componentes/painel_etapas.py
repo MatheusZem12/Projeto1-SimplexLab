@@ -24,12 +24,20 @@ class PainelEtapas(ttk.Frame):
         divisor = ttk.PanedWindow(self, orient="vertical")
         divisor.pack(fill="both", expand=True)
 
+        # Caixa da explicação com barra de rolagem (os cálculos das linhas
+        # podem ocupar bastante espaço).
+        caixa_descricao = ttk.Frame(divisor)
         self.descricao = tk.Text(
-            divisor, font=FONTE_MONO, height=10, wrap="word", relief="solid",
+            caixa_descricao, font=FONTE_MONO, height=10, wrap="word", relief="solid",
             borderwidth=1, highlightthickness=0, bg=CORES["painel"], padx=10, pady=8,
         )
+        rolagem = ttk.Scrollbar(caixa_descricao, orient="vertical", command=self.descricao.yview)
+        self.descricao.configure(yscrollcommand=rolagem.set)
+        rolagem.pack(side="right", fill="y")
+        self.descricao.pack(side="left", fill="both", expand=True)
+
         self.tabela = TabelaQuadro(divisor)
-        divisor.add(self.descricao, weight=1)
+        divisor.add(caixa_descricao, weight=1)
         divisor.add(self.tabela, weight=2)
 
         self.legenda = ttk.Label(self, text="", style="Dica.TLabel")

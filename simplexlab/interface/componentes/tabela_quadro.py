@@ -4,7 +4,7 @@ from tkinter import ttk
 from simplexlab.interface.estilos import CORES, FONTE_MONO, FAMILIA_MONO
 from simplexlab.modelo import formatar_numero
 
-FONTE_CELULA_NEGRITO = (FAMILIA_MONO, 13, "bold")
+FONTE_CELULA_NEGRITO = (FAMILIA_MONO, 12, "bold")
 
 
 # Tabela usada para mostrar o quadro do Simplex (ou as tabelas do método

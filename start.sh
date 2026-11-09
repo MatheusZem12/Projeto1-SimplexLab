@@ -4,14 +4,19 @@ set -e
 cd "$(dirname "$0")"
 
 # Cria o ambiente virtual com um Python que já vem com Tkinter.
+# Preferimos o Python do sistema quando ele tem Tkinter: o Python baixado pelo
+# uv usa um Tk sem suporte a fontes (Xft) e ignora o tamanho das fontes.
 if [ ! -x .venv/bin/python ]; then
     echo "Preparando o ambiente pela primeira vez..."
-    if command -v uv >/dev/null 2>&1; then
+    if python3 -c "import tkinter" 2>/dev/null; then
+        python3 -m venv .venv
+        .venv/bin/pip install -q -r requirements.txt
+    elif command -v uv >/dev/null 2>&1; then
         uv venv -q -p 3.13 --managed-python .venv
         uv pip install -q -p .venv/bin/python -r requirements.txt
     else
-        python3 -m venv .venv
-        .venv/bin/pip install -q -r requirements.txt
+        echo "Erro: nenhum Python com Tkinter encontrado. Instale o pacote tk do sistema."
+        exit 1
     fi
 fi
 

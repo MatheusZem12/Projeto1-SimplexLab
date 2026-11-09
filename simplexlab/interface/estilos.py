@@ -18,16 +18,16 @@ CORES = {
     "erro": "#c62828",
 }
 
-# No Windows usamos as fontes padrão do sistema; no Linux, as DejaVu.
-FAMILIA = "Segoe UI" if sys.platform == "win32" else "DejaVu Sans"
-FAMILIA_MONO = "Consolas" if sys.platform == "win32" else "DejaVu Sans Mono"
+# No Windows usamos as fontes padrão do sistema; no Linux, as Noto.
+FAMILIA = "Segoe UI" if sys.platform == "win32" else "Noto Sans"
+FAMILIA_MONO = "Consolas" if sys.platform == "win32" else "Noto Sans Mono"
 
-FONTE_PADRAO = (FAMILIA, 13)
-FONTE_NEGRITO = (FAMILIA, 13, "bold")
-FONTE_TITULO = (FAMILIA, 22, "bold")
-FONTE_SUBTITULO = (FAMILIA, 13)
+FONTE_PADRAO = (FAMILIA, 12)
+FONTE_NEGRITO = (FAMILIA, 12, "bold")
+FONTE_TITULO = (FAMILIA, 20, "bold")
+FONTE_SUBTITULO = (FAMILIA, 12)
 FONTE_SECAO = (FAMILIA, 15, "bold")
-FONTE_MONO = (FAMILIA_MONO, 13)
+FONTE_MONO = (FAMILIA_MONO, 12)
 
 
 # Configura os estilos ttk usados pelos componentes da aplicação.

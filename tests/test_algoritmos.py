@@ -144,3 +144,30 @@ def test_vertices_do_metodo_grafico():
     assert set(resultado.vertices) == {(0, 0), (4, 0), (4, 3), (2, 6), (0, 6)}
     assert resultado.pontos_otimos == [(2, 6)]
     assert not resultado.regiao_ilimitada
+
+
+def test_etapas_do_simplex_mostram_calculo_das_novas_linhas():
+    resultado = resolver_texto(EXEMPLOS["Maximização clássica (2 variáveis)"], METODO_SIMPLEX)
+    iteracao_1 = next(e for e in resultado.etapas if e.titulo == "Iteração 1")
+
+    texto = iteracao_1.descricao
+    assert "Nova linha x2 (NL) = linha f2 / 2" in texto
+    assert "b: 12 / 2 = 6" in texto
+    assert "Nova linha f1: o valor na coluna x2 já é 0" in texto
+    assert "Nova linha f3 = linha f3 - 2 x NL" in texto
+    assert "b: 18 - 2 x 6 = 6" in texto
+    assert "Nova linha Z = linha Z - (-5) x NL" in texto
+    assert "b: 0 - (-5) x 6 = 30" in texto
+
+
+def test_quadro_inicial_do_simplex_nao_tem_calculo_de_linhas():
+    resultado = resolver_texto(EXEMPLOS["Maximização clássica (2 variáveis)"], METODO_SIMPLEX)
+    inicial = next(e for e in resultado.etapas if e.titulo == "Quadro inicial")
+    assert "Cálculo das novas linhas" not in inicial.descricao
+
+
+def test_duas_fases_mostra_calculo_do_ajuste_da_linha_w():
+    resultado = resolver_texto(EXEMPLOS["Minimização com restrições >="], METODO_SIMPLEX)
+    inicial = next(e for e in resultado.etapas if e.titulo == "Fase 1 - Quadro inicial")
+    assert "Cálculo da linha W" in inicial.descricao
+    assert "Nova linha W = linha W - 1 x linha a1" in inicial.descricao
