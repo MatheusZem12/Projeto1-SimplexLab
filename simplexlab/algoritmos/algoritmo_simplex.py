@@ -160,15 +160,16 @@ class QuadroSimplex:
         outras.append((self.nome_objetivo, self.objetivo))
 
         for nome_linha, linha in outras:
+            # k = valor da própria linha na coluna do pivô (não é o pivô).
             fator = linha[coluna_pivo]
-            texto.append("")
-            if fator == 0:
-                texto.append(f"Nova linha {nome_linha}: o valor na coluna {entra} já é 0, "
-                             "a linha não muda.")
-                continue
             novo = [a - fator * b for a, b in zip(linha, nova_pivo)]
-            texto.append(f"Nova linha {nome_linha} = linha {nome_linha} - "
-                         f"{_entre_parenteses(fator)} x NL")
+            texto += [
+                "",
+                f"Nova linha {nome_linha} = linha {nome_linha} - k x NL",
+                f"    k = valor da linha {nome_linha} na coluna {entra} = {formatar_numero(fator)}",
+            ]
+            if fator == 0:
+                texto.append("    (k = 0, então a linha fica igual)")
             texto += self._calculo_subtracao(linha, nova_pivo, fator, novo)
         return "\n".join(texto)
 

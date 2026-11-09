@@ -153,10 +153,11 @@ def test_etapas_do_simplex_mostram_calculo_das_novas_linhas():
     texto = iteracao_1.descricao
     assert "Nova linha x2 (NL) = linha f2 / 2" in texto
     assert "b: 12 / 2 = 6" in texto
-    assert "Nova linha f1: o valor na coluna x2 já é 0" in texto
-    assert "Nova linha f3 = linha f3 - 2 x NL" in texto
+    assert "k = valor da linha f1 na coluna x2 = 0" in texto
+    assert "x2: 0 - 0 x 1 = 0" in texto
+    assert "k = valor da linha f3 na coluna x2 = 2" in texto
     assert "b: 18 - 2 x 6 = 6" in texto
-    assert "Nova linha Z = linha Z - (-5) x NL" in texto
+    assert "k = valor da linha Z na coluna x2 = -5" in texto
     assert "b: 0 - (-5) x 6 = 30" in texto
 
 
