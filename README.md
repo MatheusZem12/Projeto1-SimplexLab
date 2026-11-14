@@ -10,7 +10,11 @@ Leandro Daniel Lopes Camargo.
 ## Como executar
 
 Requisitos: Python 3.10 ou superior com Tkinter, e as bibliotecas de
-`requirements.txt`. Para importar enunciados com IA, também o Claude Code (veja abaixo).
+`requirements.txt`. Para importar enunciados com IA, também uma chave de API da
+Anthropic (veja abaixo).
+
+No Windows também existe o executável `SimplexLab.exe` (veja "Gerar o executável"),
+que não precisa de Python nem de configuração.
 
 ```bash
 pip install -r requirements.txt
@@ -44,26 +48,38 @@ também) ou um arquivo de imagem. A IA monta o modelo de PL, que entra na lista 
 exemplos como `IA: <nome do problema>` e já aparece na caixa do modelo. Depois é o
 fluxo normal: conferir o modelo, escolher Simplex ou Gráfico e clicar em Resolver.
 
-A IA usada é o **Claude Code da própria máquina**, logado na conta do Claude. Não
-existe chave de API no projeto e o uso sai da assinatura de quem está rodando.
-Para preparar (uma vez só):
+A IA usada é o Claude (`claude-opus-5-5`) pela **API da Anthropic**, com o SDK
+oficial `anthropic`. O enunciado e as imagens vão da memória direto para a API:
+o programa **não grava nenhum arquivo nem histórico** no computador.
+
+A chave de API vem, nesta ordem:
+
+1. da chave embutida no executável (gerada pelo `gerar_executavel.py`);
+2. da variável de ambiente `ANTHROPIC_API_KEY`, para quem roda pelo código-fonte:
 
 ```bash
-npm install -g @anthropic-ai/claude-code
-claude   # e faça o login com /login
+# PowerShell
+$env:ANTHROPIC_API_KEY = "sk-ant-..."
+python main.py
 ```
 
-Se o `claude` estiver fora do PATH, informe o caminho na variável de ambiente
-`SIMPLEXLAB_CLAUDE`.
+Cada importação custa poucos centavos de dólar (veja `ModeloGerado.custo_estimado`).
 
-Cada importação fica guardada em `historico_ia/pl_AAAAMMDD_HHMM/`, com as imagens do
-enunciado e um `resposta.json` (enunciado, PL gerado, retorno completo do Claude e o
-`session_id`). Para reabrir a conversa com o Claude:
+## Gerar o executável (Windows)
 
 ```bash
-cd historico_ia
-claude --resume <session_id>
+pip install -r requirements.txt pyinstaller
+python gerar_executavel.py
 ```
+
+Antes, salve a chave de API no arquivo `chave_api.txt` na raiz do projeto. Esse
+arquivo está no `.gitignore` e **nunca deve ir para o GitHub**. O script embute a
+chave no executável, apaga os arquivos intermediários que contêm a chave e gera
+`dist/SimplexLab.exe` e `dist/SimplexLab.zip` (executável + LEIA-ME).
+
+Quem tiver o `.exe` consegue extrair a chave com algum esforço, então use uma
+chave de um workspace com **limite de gasto** e desative a chave quando ela não
+for mais necessária.
 
 ## Estrutura do projeto
 
@@ -73,10 +89,11 @@ a janela.
 
 ```
 main.py                         ponto de entrada da aplicação
+gerar_executavel.py             gera o SimplexLab.exe (com a chave embutida) e o zip
 simplexlab/
     modelo.py                   ProblemaPL e Restricao, leitura do texto digitado,
                                 formatação de números (frações) e exemplos prontos
-    gerador_pl.py               gera o PL de um enunciado usando o Claude Code
+    gerador_pl.py               gera o PL de um enunciado usando a API do Claude
     algoritmos/
         algoritmo_pl.py         partes comuns: Etapa, Resultado e forma padrão
                                 (folga, excesso e artificiais)
@@ -95,7 +112,7 @@ simplexlab/
 tests/
     test_modelo.py              leitura do modelo e formatação
     test_algoritmos.py          resultados dos métodos, quadros e casos especiais
-    test_gerador_pl.py          gerador de PL com um Claude falso (não gasta a assinatura)
+    test_gerador_pl.py          gerador de PL com um cliente falso (não gasta créditos)
     test_interface.py           abre a tela, resolve os exemplos e importa enunciado
 ```
 

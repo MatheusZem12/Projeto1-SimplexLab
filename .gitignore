@@ -4,5 +4,11 @@ __pycache__/
 venv/
 .pytest_cache/
 
-# Histórico local das importações com IA (imagens e respostas do Claude)
-historico_ia/
+# Chave de API: NUNCA versionar (o gerar_executavel.py lê daqui)
+chave_api.txt
+simplexlab/_chave_embutida.py
+
+# Saída do PyInstaller
+build/
+dist/
+*.spec

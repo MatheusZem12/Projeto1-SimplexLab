@@ -70,7 +70,7 @@ def test_importar_enunciado_com_ia(tela, monkeypatch):
 
     modelo = "# x1: mesas\nmax z = 30x1 + 20x2\n4x1 + 3x2 <= 240\n2x1 + x2 <= 100"
     monkeypatch.setattr(janela_importar, "gerar_pl",
-                        lambda texto, imagens, processo_iniciado: ModeloGerado("Mesas", modelo))
+                        lambda texto, imagens, cancelado: ModeloGerado("Mesas", modelo))
 
     tela._importar_enunciado()
     janela = next(w for w in tela.janela.winfo_children()

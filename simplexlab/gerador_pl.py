@@ -1,44 +1,40 @@
 """
 Geração do modelo de PL a partir de um enunciado (texto e/ou imagem) usando IA.
 
-Em vez de usar uma chave de API, chamamos o Claude Code instalado na máquina
-(comando "claude"), que usa a conta do Claude em que o usuário já fez login.
-Assim nenhuma chave fica no projeto e o consumo sai da assinatura do usuário.
+Usamos a API da Anthropic (modelo Claude) pelo SDK oficial "anthropic". A chave
+de API vem, nesta ordem:
+    1. da chave embutida no executável (gerada pelo gerar_executavel.py);
+    2. da variável de ambiente ANTHROPIC_API_KEY (para rodar pelo código-fonte).
 
-Pré-requisitos (uma vez só):
-    npm install -g @anthropic-ai/claude-code
-    claude            (e faça o login com /login)
-
-Se o executável estiver em um lugar fora do PATH, informe o caminho na
-variável de ambiente SIMPLEXLAB_CLAUDE.
+Nada é gravado em disco: o enunciado e as imagens vão da memória direto para a
+API, e a resposta só volta para a tela. Não existe histórico das importações.
 """
 
+import base64
+import io
 import json
 import os
-import shutil
-import subprocess
 from dataclasses import dataclass
-from datetime import datetime
-from pathlib import Path
+
+import anthropic
+from PIL import Image
 
 from simplexlab.modelo import ErroLeitura, ler_modelo
 
-TEMPO_LIMITE = 300  # segundos
+MODELO_IA = "claude-opus-5-5"
+ESFORCO = "high"           # quanto o modelo pensa antes de responder
+MAX_TOKENS = 16000         # teto da resposta (inclui o raciocínio); limita o custo por chamada
+TEMPO_LIMITE = 300         # segundos
+LADO_MAXIMO_IMAGEM = 2048  # px; imagens maiores são reduzidas antes do envio
+TAMANHO_MAXIMO_PNG = 3_500_000  # bytes; acima disso a imagem vai como JPEG
 
-# Histórico das importações. Cada geração ganha uma pasta própria, que nunca é
-# apagada:
-#     historico_ia/pl_AAAAMMDD_HHMM/
-#         imagem1.png      as imagens do enunciado (se houver)
-#         resposta.json    o enunciado, o PL devolvido e o retorno completo do Claude
-# O Claude roda a partir de historico_ia/, então as sessões ficam no histórico do
-# Claude Code dessa pasta. Para reabrir uma, entre em historico_ia/ e rode
-# "claude --resume <session_id>" (o session_id está no resposta.json).
-PASTA_PROJETO = Path(__file__).resolve().parent.parent
-PASTA_HISTORICO = PASTA_PROJETO / "historico_ia"
+# Preço do claude-opus-5-5 em US$ por milhão de tokens (usado só para estimar o custo).
+PRECO_ENTRADA = 4.00
+PRECO_SAIDA = 20.00
 
 INSTRUCOES = """\
-Você é um professor de Pesquisa Operacional. Leia o enunciado abaixo (texto e/ou
-imagem anexada) e formule o modelo de Programação Linear.
+Você é um professor de Pesquisa Operacional. Leia o enunciado enviado (texto e/ou
+imagem) e formule o modelo de Programação Linear.
 
 Responda só no formato JSON pedido, com os campos:
 - "titulo": um nome curto para o problema (até 40 caracteres, em português);
@@ -88,185 +84,131 @@ class ModeloGerado:
     titulo: str
     texto: str
     erro: str | None = None
+    tokens_entrada: int = 0
+    tokens_saida: int = 0
+
+    # Custo aproximado da chamada, em dólares.
+    @property
+    def custo_estimado(self):
+        return (self.tokens_entrada * PRECO_ENTRADA + self.tokens_saida * PRECO_SAIDA) / 1_000_000
 
 
-# Procura o executável do Claude Code: primeiro na variável SIMPLEXLAB_CLAUDE
-# e depois no PATH (no Windows o npm instala como claude.cmd, o which acha também).
-def encontrar_claude():
-    caminho = os.environ.get("SIMPLEXLAB_CLAUDE") or shutil.which("claude")
-    if not caminho:
+# Chave de API: primeiro a embutida no executável, depois a variável de ambiente.
+def obter_chave():
+    try:
+        from simplexlab._chave_embutida import chave as chave_embutida
+    except ImportError:
+        chave_embutida = None
+    chave = (chave_embutida() if chave_embutida else "") or os.environ.get("ANTHROPIC_API_KEY", "")
+    if not chave.strip():
         raise ErroIA(
-            "Não encontrei o Claude Code nesta máquina.\n\n"
-            "Instale com: npm install -g @anthropic-ai/claude-code\n"
-            "Depois entre na sua conta: rode 'claude' e use /login"
+            "Chave de API não configurada.\n\n"
+            "Rodando pelo código-fonte, defina a variável de ambiente ANTHROPIC_API_KEY."
         )
-    return caminho
+    return chave.strip()
+
+
+def _criar_cliente():
+    return anthropic.Anthropic(api_key=obter_chave(), timeout=TEMPO_LIMITE, max_retries=2)
 
 
 # Envia o enunciado para o Claude e devolve o modelo de PL gerado.
-# "processo_iniciado" recebe o Popen, para a interface poder cancelar.
-def gerar_pl(texto="", imagens=(), processo_iniciado=None):
+# "imagens" aceita imagens do Pillow (já em memória) ou caminhos de arquivo.
+# "cancelado" é um threading.Event: se for marcado, a geração é interrompida.
+def gerar_pl(texto="", imagens=(), cancelado=None):
     texto = texto.strip()
     if not texto and not imagens:
         raise ErroIA("Cole o texto do enunciado ou uma imagem antes de gerar o PL.")
 
-    claude = encontrar_claude()
-    pasta = _criar_pasta_historico()
+    conteudo = [_bloco_imagem(imagem) for imagem in imagens]
+    conteudo.append({"type": "text", "text": "Enunciado:\n" + (texto or "(veja a imagem anexada)")})
 
-    # O Claude não recebe imagem por parâmetro: guardamos cada uma na pasta do
-    # histórico e pedimos para ele abrir com a ferramenta Read.
-    anexos = []
-    for numero, imagem in enumerate(imagens, start=1):
-        imagem = Path(imagem)
-        destino = pasta / f"imagem{numero}{imagem.suffix.lower() or '.png'}"
-        shutil.copyfile(imagem, destino)
-        anexos.append(destino)
-
-    comando = [
-        claude, "-p",
-        "--output-format", "json",
-        "--json-schema", json.dumps(ESQUEMA_RESPOSTA),
-        "--name", f"SimplexLab: {pasta.name}",
-        "--strict-mcp-config",
-        # Só a leitura de arquivos fica disponível (para abrir as imagens).
-        "--tools=Read",
-        "--allowedTools=Read",
-        "--permission-mode", "dontAsk",
-    ]
-
-    prompt = INSTRUCOES + "\nEnunciado:\n" + (texto or "(veja a imagem anexada)")
-    if anexos:
-        prompt += "\n\nImagens do enunciado (abra cada uma com a ferramenta Read):\n"
-        prompt += "\n".join(str(anexo) for anexo in anexos)
-
-    registro = {
-        "data": datetime.now().isoformat(timespec="seconds"),
-        "enunciado": texto,
-        "imagens": [anexo.name for anexo in anexos],
-    }
+    cliente = _criar_cliente()
     try:
-        saida = _executar(comando, prompt, PASTA_HISTORICO, processo_iniciado, registro)
-        gerado = _interpretar_resposta(_extrair_resultado(saida))
-    except ErroIA as erro:
-        registro["erro"] = str(erro)
-        _salvar_registro(pasta, registro)
-        raise
+        # Usamos streaming para poder interromper no meio quando o usuário cancela.
+        # "fallbacks" faz a própria API tentar outro modelo se este recusar o pedido.
+        with cliente.beta.messages.stream(
+            model=MODELO_IA,
+            max_tokens=MAX_TOKENS,
+            system=INSTRUCOES,
+            messages=[{"role": "user", "content": conteudo}],
+            output_config={
+                "effort": ESFORCO,
+                "format": {"type": "json_schema", "schema": ESQUEMA_RESPOSTA},
+            },
+            betas=["server-side-fallback-2026-07-01"],
+            fallbacks="default",
+        ) as fluxo:
+            for _evento in fluxo:
+                if cancelado is not None and cancelado.is_set():
+                    raise ErroIA("Geração cancelada.")
+            resposta = fluxo.get_final_message()
+    except anthropic.APIError as erro:
+        raise ErroIA(_mensagem_de_falha(erro)) from erro
 
-    registro["titulo"] = gerado.titulo
-    registro["modelo"] = gerado.texto
-    if gerado.erro:
-        registro["erro_formato"] = gerado.erro
-    _salvar_registro(pasta, registro)
+    if resposta.stop_reason == "refusal":
+        raise ErroIA("A IA se recusou a responder este enunciado. Tente reescrever o texto.")
+    if resposta.stop_reason == "max_tokens":
+        raise ErroIA("A resposta da IA ficou longa demais e foi cortada. Tente de novo.")
+
+    texto_resposta = "".join(bloco.text for bloco in resposta.content if bloco.type == "text")
+    gerado = _interpretar_resposta(texto_resposta)
+    gerado.tokens_entrada = resposta.usage.input_tokens
+    gerado.tokens_saida = resposta.usage.output_tokens
     return gerado
 
 
-# Cria historico_ia/pl_AAAAMMDD_HHMM. Se já existir uma no mesmo minuto,
-# acrescenta _2, _3, ...
-def _criar_pasta_historico():
-    PASTA_HISTORICO.mkdir(parents=True, exist_ok=True)
-    nome = "pl_" + datetime.now().strftime("%Y%m%d_%H%M")
-    pasta = PASTA_HISTORICO / nome
-    numero = 2
-    while pasta.exists():
-        pasta = PASTA_HISTORICO / f"{nome}_{numero}"
-        numero += 1
-    pasta.mkdir()
-    return pasta
-
-
-# Grava o resposta.json da pasta do histórico. O session_id vem do retorno do
-# Claude e serve para reabrir a conversa com "claude --resume".
-def _salvar_registro(pasta, registro):
-    retorno = registro.get("retorno_claude")
-    if isinstance(retorno, dict) and retorno.get("session_id"):
-        registro = {"session_id": retorno["session_id"], **registro}
-    conteudo = json.dumps(registro, ensure_ascii=False, indent=2)
-    (pasta / "resposta.json").write_text(conteudo + "\n", encoding="utf-8")
-
-
-# Roda o Claude passando o prompt pela entrada padrão e devolve o stdout.
-# O retorno bruto também vai para o registro do histórico.
-def _executar(comando, prompt, pasta, processo_iniciado, registro):
+# Converte a imagem em um bloco base64 da API, sem gravar nada em disco.
+# Imagens grandes são reduzidas (economiza envio) e formatos que a API não
+# aceita (BMP, por exemplo) viram PNG.
+def _bloco_imagem(imagem):
     try:
-        processo = subprocess.Popen(
-            comando,
-            cwd=pasta,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
+        if isinstance(imagem, Image.Image):
+            imagem = imagem.copy()
+        else:
+            with Image.open(imagem) as aberta:
+                aberta.load()
+                imagem = aberta.copy()
     except OSError as erro:
-        raise ErroIA(f"Não foi possível executar o Claude: {erro}") from erro
+        raise ErroIA(f"Não consegui abrir a imagem: {erro}") from erro
 
-    if processo_iniciado is not None:
-        processo_iniciado(processo)
+    imagem.thumbnail((LADO_MAXIMO_IMAGEM, LADO_MAXIMO_IMAGEM))
+    if imagem.mode not in ("1", "L", "LA", "P", "RGB", "RGBA"):
+        imagem = imagem.convert("RGB")
 
-    try:
-        saida, erros = processo.communicate(prompt, timeout=TEMPO_LIMITE)
-    except subprocess.TimeoutExpired:
-        processo.kill()
-        processo.communicate()
-        raise ErroIA(f"O Claude passou de {TEMPO_LIMITE} segundos sem responder.")
+    buffer = io.BytesIO()
+    imagem.save(buffer, format="PNG")
+    tipo = "image/png"
+    if buffer.tell() > TAMANHO_MAXIMO_PNG:
+        buffer = io.BytesIO()
+        imagem.convert("RGB").save(buffer, format="JPEG", quality=90)
+        tipo = "image/jpeg"
 
-    try:
-        registro["retorno_claude"] = json.loads(saida)
-    except json.JSONDecodeError:
-        registro["retorno_claude"] = saida
-
-    if processo.returncode != 0:
-        # Com --output-format json o motivo do erro costuma vir no stdout.
-        raise ErroIA(_mensagem_de_falha(erros + "\n" + _texto_do_erro(saida)))
-    return saida
+    dados = base64.standard_b64encode(buffer.getvalue()).decode("ascii")
+    return {"type": "image", "source": {"type": "base64", "media_type": tipo, "data": dados}}
 
 
-# Tira a mensagem de erro do JSON do Claude (campo "result"), se houver.
-def _texto_do_erro(saida):
-    try:
-        return str(json.loads(saida).get("result", ""))
-    except (json.JSONDecodeError, AttributeError):
-        return saida
-
-
-# O stdout do Claude é um JSON com o resultado da execução. A resposta no
-# formato do esquema vem em "structured_output"; se não vier, tentamos "result".
-def _extrair_resultado(saida):
-    try:
-        dados = json.loads(saida)
-    except json.JSONDecodeError as erro:
-        raise ErroIA(f"A resposta do Claude não veio no formato esperado:\n\n{saida}") from erro
-    if not isinstance(dados, dict):
-        raise ErroIA(f"A resposta do Claude não veio no formato esperado:\n\n{saida}")
-
-    if dados.get("is_error"):
-        raise ErroIA(_mensagem_de_falha(str(dados.get("result", ""))))
-
-    estruturado = dados.get("structured_output")
-    if isinstance(estruturado, dict):
-        return json.dumps(estruturado)
-    return _sem_cercas(str(dados.get("result", "")))
-
-
-# Remove o bloco ```json ... ``` que às vezes envolve a resposta em texto.
-def _sem_cercas(texto):
-    texto = texto.strip()
-    if texto.startswith("```"):
-        texto = texto.split("\n", 1)[1] if "\n" in texto else ""
-        texto = texto.rsplit("```", 1)[0]
-    return texto.strip()
-
-
-# Monta uma mensagem curta a partir do que o Claude escreveu.
-def _mensagem_de_falha(erros):
-    linhas = [linha for linha in erros.strip().splitlines() if linha.strip()]
-    detalhe = "\n".join(linhas[-5:]) or "sem detalhes"
-    minusculo = detalhe.lower()
-    if "login" in minusculo or "auth" in minusculo or "api key" in minusculo:
-        return ("O Claude não está logado. Rode 'claude' no terminal e use /login.\n\n"
-                f"{detalhe}")
-    return f"O Claude retornou um erro:\n\n{detalhe}"
+# Traduz os erros da API para uma mensagem curta em português.
+def _mensagem_de_falha(erro):
+    if isinstance(erro, anthropic.AuthenticationError):
+        return "A chave de API foi recusada (inválida, expirada ou desativada)."
+    if isinstance(erro, anthropic.PermissionDeniedError):
+        return "A chave de API não tem permissão para usar este modelo."
+    if isinstance(erro, anthropic.RateLimitError):
+        return "Muitas requisições em pouco tempo. Espere um minuto e tente de novo."
+    if isinstance(erro, anthropic.APITimeoutError):
+        return f"A IA passou de {TEMPO_LIMITE} segundos sem responder. Tente de novo."
+    if isinstance(erro, anthropic.APIConnectionError):
+        return "Não consegui falar com a API da Anthropic. Confira a conexão com a internet."
+    if isinstance(erro, anthropic.APIStatusError):
+        detalhe = str(erro.message)
+        minusculo = detalhe.lower()
+        if "usage limit" in minusculo or "spend limit" in minusculo or "credit balance" in minusculo:
+            return "O limite de gasto da chave de API do projeto foi atingido.\n\n" + detalhe
+        if erro.status_code >= 500:
+            return f"A API da Anthropic está instável agora (erro {erro.status_code}). Tente de novo."
+        return f"A API retornou um erro ({erro.status_code}):\n\n{detalhe}"
+    return f"Erro ao chamar a IA: {erro}"
 
 
 # Lê o JSON devolvido e confere se o modelo está no formato que o leitor aceita.
@@ -276,7 +218,7 @@ def _interpretar_resposta(conteudo):
         titulo = str(dados["titulo"]).strip() or "Enunciado importado"
         modelo = str(dados["modelo"]).strip()
     except (json.JSONDecodeError, KeyError, TypeError) as erro:
-        raise ErroIA(f"A resposta do Claude não veio no formato esperado:\n\n{conteudo}") from erro
+        raise ErroIA(f"A resposta da IA não veio no formato esperado:\n\n{conteudo}") from erro
 
     gerado = ModeloGerado(titulo=titulo, texto=modelo)
     try:
