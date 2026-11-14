@@ -1,144 +1,171 @@
 """
-Testes do gerador de PL com IA. Em vez do Claude de verdade (que gastaria a
-assinatura a cada execução), usamos um "claude" falso que só imprime a resposta.
+Testes do gerador de PL com IA. Em vez da API de verdade (que gastaria créditos
+a cada execução), usamos um cliente falso que só devolve a resposta combinada.
 """
 
+import base64
+import io
 import json
 import sys
+import threading
+import types
+from types import SimpleNamespace
 
+import anthropic
+import httpx2
 import pytest
+from PIL import Image
 
 from simplexlab import gerador_pl
-from simplexlab.gerador_pl import ErroIA, gerar_pl
+from simplexlab.gerador_pl import ErroIA, ModeloGerado, gerar_pl, obter_chave
 
 MODELO = "# x1: mesas\n# x2: cadeiras\nmax z = 30x1 + 20x2\ns.a.\n4x1 + 3x2 <= 240\n2x1 + x2 <= 100"
+REQUISICAO = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
 
 
-# Monta a saída que o "claude -p --output-format json" imprime.
-def saida_claude(estruturado=None, resultado="", erro=False):
-    dados = {"type": "result", "is_error": erro, "result": resultado}
-    if estruturado is not None:
-        dados["structured_output"] = estruturado
-    return json.dumps(dados)
+# Monta uma mensagem no formato que o SDK devolve em get_final_message().
+def resposta(estruturado=None, texto=None, stop_reason="end_turn", entrada=1000, saida=500):
+    texto = json.dumps(estruturado) if texto is None else texto
+    return SimpleNamespace(
+        content=[SimpleNamespace(type="thinking", thinking=""),
+                 SimpleNamespace(type="text", text=texto)],
+        stop_reason=stop_reason,
+        usage=SimpleNamespace(input_tokens=entrada, output_tokens=saida),
+    )
 
 
-# Cria um executável que imita o "claude -p": guarda os argumentos, o prompt
-# e a pasta de trabalho e imprime a resposta no stdout.
+class FluxoFalso:
+    def __init__(self, mensagem):
+        self._mensagem = mensagem
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_erro):
+        return False
+
+    def __iter__(self):
+        return iter(["evento"])
+
+    def get_final_message(self):
+        return self._mensagem
+
+
+# Imita anthropic.Anthropic(): guarda os argumentos de cada chamada.
+class ClienteFalso:
+    def __init__(self, mensagem=None, erro=None):
+        self.chamadas = []
+        self._mensagem = mensagem
+        self._erro = erro
+        self.beta = SimpleNamespace(messages=SimpleNamespace(stream=self._stream))
+
+    def _stream(self, **argumentos):
+        self.chamadas.append(argumentos)
+        if self._erro is not None:
+            raise self._erro
+        return FluxoFalso(self._mensagem)
+
+
 @pytest.fixture
-def claude_falso(tmp_path, monkeypatch):
-    registro = tmp_path / "chamada.json"
-
-    def criar(resposta, codigo_saida=0, stderr=""):
-        programa = tmp_path / "claude_falso.py"
-        programa.write_text(
-            "import json, os, sys\n"
-            "args = sys.argv[1:]\n"
-            "prompt = sys.stdin.read()\n"
-            f"json.dump({{'args': args, 'prompt': prompt, 'cwd': os.getcwd()}},"
-            f" open({str(registro)!r}, 'w'))\n"
-            f"sys.stderr.write({stderr!r})\n"
-            f"sys.stdout.write({resposta!r})\n"
-            f"sys.exit({codigo_saida})\n",
-            encoding="utf-8",
-        )
-        # Script de shell que chama o Python (o caminho pode ter espaços).
-        script = tmp_path / "claude"
-        script.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{programa}" "$@"\n')
-        script.chmod(0o755)
-        monkeypatch.setenv("SIMPLEXLAB_CLAUDE", str(script))
-        # O histórico vai para a pasta temporária do teste, não para o projeto.
-        monkeypatch.setattr(gerador_pl, "PASTA_HISTORICO", tmp_path / "historico_ia")
-        return lambda: json.loads(registro.read_text())
-
+def ia_falsa(monkeypatch):
+    def criar(mensagem=None, erro=None):
+        cliente = ClienteFalso(mensagem, erro)
+        monkeypatch.setattr(gerador_pl, "_criar_cliente", lambda: cliente)
+        return cliente
     return criar
 
 
-def test_gera_modelo_a_partir_de_texto(claude_falso):
-    chamada = claude_falso(saida_claude({"titulo": "Mesas e cadeiras", "modelo": MODELO}))
+def test_gera_modelo_a_partir_de_texto(ia_falsa):
+    cliente = ia_falsa(resposta({"titulo": "Mesas e cadeiras", "modelo": MODELO}))
 
     gerado = gerar_pl("Uma fábrica produz mesas e cadeiras...")
 
     assert gerado.titulo == "Mesas e cadeiras"
     assert gerado.texto == MODELO
     assert gerado.erro is None
+    assert (gerado.tokens_entrada, gerado.tokens_saida) == (1000, 500)
 
-    args = chamada()["args"]
-    assert args[0] == "-p"
-    assert args[args.index("--output-format") + 1] == "json"
-    assert json.loads(args[args.index("--json-schema") + 1])["required"] == ["titulo", "modelo"]
-    assert "--no-session-persistence" not in args
-    assert chamada()["cwd"] == str(gerador_pl.PASTA_HISTORICO)
-    assert "--tools=Read" in args
-    assert "Uma fábrica produz mesas e cadeiras" in chamada()["prompt"]
-
-
-def test_imagens_vao_para_a_pasta_de_trabalho(claude_falso, tmp_path):
-    chamada = claude_falso(saida_claude({"titulo": "Print", "modelo": MODELO}))
-    imagem = tmp_path / "questao.PNG"
-    imagem.write_bytes(b"")
-
-    gerar_pl("", [imagem])
-
-    pastas = list(gerador_pl.PASTA_HISTORICO.glob("pl_*"))
-    assert len(pastas) == 1
-    assert sorted(a.name for a in pastas[0].iterdir()) == ["imagem1.png", "resposta.json"]
-    prompt = chamada()["prompt"]
-    assert "veja a imagem anexada" in prompt
-    assert str(pastas[0] / "imagem1.png") in prompt and "Read" in prompt
+    chamada = cliente.chamadas[0]
+    assert chamada["model"] == gerador_pl.MODELO_IA
+    assert chamada["system"] == gerador_pl.INSTRUCOES
+    assert chamada["output_config"]["format"]["schema"]["required"] == ["titulo", "modelo"]
+    assert chamada["fallbacks"] == "default"
+    conteudo = chamada["messages"][0]["content"]
+    assert conteudo[-1]["type"] == "text"
+    assert "Uma fábrica produz mesas e cadeiras" in conteudo[-1]["text"]
 
 
-def test_historico_guarda_resposta_e_session_id(claude_falso):
-    saida = json.loads(saida_claude({"titulo": "Mesas", "modelo": MODELO}))
-    saida["session_id"] = "abc-123"
-    claude_falso(json.dumps(saida))
+def test_imagens_vao_em_memoria_e_nada_e_gravado(ia_falsa, tmp_path, monkeypatch):
+    cliente = ia_falsa(resposta({"titulo": "Print", "modelo": MODELO}))
+    arquivo_bmp = tmp_path / "questao.bmp"
+    Image.new("RGB", (40, 30), "white").save(arquivo_bmp)
+    print_grande = Image.new("RGB", (4000, 1000), "white")
+    pasta_trabalho = tmp_path / "trabalho"
+    pasta_trabalho.mkdir()
+    monkeypatch.chdir(pasta_trabalho)
 
-    gerar_pl("Uma fábrica produz mesas")
-    gerar_pl("Outro enunciado no mesmo minuto")
+    gerar_pl("", [print_grande, arquivo_bmp])
 
-    pastas = sorted(gerador_pl.PASTA_HISTORICO.glob("pl_*"))
-    assert len(pastas) == 2 and pastas[1].name.endswith("_2")
-    registro = json.loads((pastas[0] / "resposta.json").read_text(encoding="utf-8"))
-    assert registro["session_id"] == "abc-123"
-    assert registro["enunciado"] == "Uma fábrica produz mesas"
-    assert registro["titulo"] == "Mesas" and registro["modelo"] == MODELO
-    assert registro["retorno_claude"]["session_id"] == "abc-123"
-
-
-def test_historico_guarda_erro(claude_falso):
-    claude_falso("não é json")
-    with pytest.raises(ErroIA):
-        gerar_pl("enunciado")
-    pasta = next(gerador_pl.PASTA_HISTORICO.glob("pl_*"))
-    registro = json.loads((pasta / "resposta.json").read_text(encoding="utf-8"))
-    assert "formato esperado" in registro["erro"]
-    assert registro["retorno_claude"] == "não é json"
+    conteudo = cliente.chamadas[0]["messages"][0]["content"]
+    assert [bloco["type"] for bloco in conteudo] == ["image", "image", "text"]
+    assert "veja a imagem anexada" in conteudo[-1]["text"]
+    tamanhos = []
+    for bloco in conteudo[:2]:
+        assert bloco["source"]["media_type"] == "image/png"
+        dados = base64.standard_b64decode(bloco["source"]["data"])
+        tamanhos.append(Image.open(io.BytesIO(dados)).size)
+    assert tamanhos == [(2048, 512), (40, 30)]
+    # A imagem original não é alterada e nenhum arquivo é criado.
+    assert print_grande.size == (4000, 1000)
+    assert list(pasta_trabalho.iterdir()) == []
 
 
-def test_aceita_resposta_em_texto_sem_structured_output(claude_falso):
-    texto = "```json\n" + json.dumps({"titulo": "Texto", "modelo": MODELO}) + "\n```"
-    claude_falso(saida_claude(resultado=texto))
-    gerado = gerar_pl("enunciado")
-    assert gerado.titulo == "Texto"
-    assert gerado.texto == MODELO
-
-
-def test_modelo_fora_do_formato_volta_com_erro(claude_falso):
-    claude_falso(saida_claude({"titulo": "Ruim", "modelo": "maximizar o lucro"}))
+def test_modelo_fora_do_formato_volta_com_erro(ia_falsa):
+    ia_falsa(resposta({"titulo": "Ruim", "modelo": "maximizar o lucro"}))
     gerado = gerar_pl("enunciado")
     assert gerado.texto == "maximizar o lucro"
     assert gerado.erro.startswith("Linha 1")
 
 
-def test_resposta_que_nao_e_json(claude_falso):
-    claude_falso("não é json")
+def test_resposta_que_nao_e_json(ia_falsa):
+    ia_falsa(resposta(texto="não é json"))
     with pytest.raises(ErroIA, match="formato esperado"):
         gerar_pl("enunciado")
 
 
-def test_claude_sem_login(claude_falso):
-    claude_falso(saida_claude(resultado="Not logged in · Please run /login", erro=True),
-                 codigo_saida=1)
-    with pytest.raises(ErroIA, match="/login"):
+def test_recusa_da_ia(ia_falsa):
+    ia_falsa(resposta(texto="", stop_reason="refusal"))
+    with pytest.raises(ErroIA, match="recusou"):
+        gerar_pl("enunciado")
+
+
+def test_resposta_cortada(ia_falsa):
+    ia_falsa(resposta(texto='{"titulo": "Cor', stop_reason="max_tokens"))
+    with pytest.raises(ErroIA, match="cortada"):
+        gerar_pl("enunciado")
+
+
+def test_cancelar_interrompe_a_geracao(ia_falsa):
+    ia_falsa(resposta({"titulo": "Mesas", "modelo": MODELO}))
+    cancelado = threading.Event()
+    cancelado.set()
+    with pytest.raises(ErroIA, match="cancelada"):
+        gerar_pl("enunciado", cancelado=cancelado)
+
+
+@pytest.mark.parametrize("erro, mensagem", [
+    (anthropic.AuthenticationError(
+        "invalid x-api-key", response=httpx2.Response(401, request=REQUISICAO), body=None),
+     "chave de API foi recusada"),
+    (anthropic.BadRequestError(
+        "You have reached your specified workspace API usage limits.",
+        response=httpx2.Response(400, request=REQUISICAO), body=None),
+     "limite de gasto"),
+    (anthropic.APIConnectionError(request=REQUISICAO), "conexão com a internet"),
+])
+def test_erros_da_api_viram_mensagens(ia_falsa, erro, mensagem):
+    ia_falsa(erro=erro)
+    with pytest.raises(ErroIA, match=mensagem):
         gerar_pl("enunciado")
 
 
@@ -147,8 +174,27 @@ def test_sem_enunciado():
         gerar_pl("   ")
 
 
-def test_claude_nao_instalado(monkeypatch):
-    monkeypatch.delenv("SIMPLEXLAB_CLAUDE", raising=False)
-    monkeypatch.setattr(gerador_pl.shutil, "which", lambda _nome: None)
-    with pytest.raises(ErroIA, match="npm install -g @anthropic-ai/claude-code"):
-        gerar_pl("enunciado")
+def test_sem_chave(monkeypatch):
+    monkeypatch.setitem(sys.modules, "simplexlab._chave_embutida", None)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    with pytest.raises(ErroIA, match="Chave de API não configurada"):
+        obter_chave()
+
+
+def test_chave_embutida_tem_prioridade(monkeypatch):
+    modulo = types.ModuleType("simplexlab._chave_embutida")
+    modulo.chave = lambda: "sk-ant-embutida"
+    monkeypatch.setitem(sys.modules, "simplexlab._chave_embutida", modulo)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-ambiente")
+    assert obter_chave() == "sk-ant-embutida"
+
+
+def test_chave_da_variavel_de_ambiente(monkeypatch):
+    monkeypatch.setitem(sys.modules, "simplexlab._chave_embutida", None)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", " sk-ant-ambiente\n")
+    assert obter_chave() == "sk-ant-ambiente"
+
+
+def test_custo_estimado():
+    gerado = ModeloGerado("Mesas", MODELO, tokens_entrada=1000, tokens_saida=500)
+    assert gerado.custo_estimado == pytest.approx(0.014)

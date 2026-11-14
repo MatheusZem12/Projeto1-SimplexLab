@@ -1,6 +1,4 @@
 import queue
-import shutil
-import tempfile
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -13,7 +11,7 @@ from simplexlab.interface.estilos import CORES, FONTE_MONO
 
 DICA = (
     "Cole o enunciado completo: texto, imagem (print da questão) ou os dois.\n"
-    "Ctrl+V na caixa cola texto ou imagem. O PL é gerado pelo Claude da sua conta."
+    "Ctrl+V na caixa cola texto ou imagem. O PL é gerado pelo Claude (API da Anthropic)."
 )
 TIPOS_IMAGEM = [("Imagens", "*.png *.jpg *.jpeg *.webp *.gif *.bmp"), ("Todos os arquivos", "*")]
 EXTENSOES_IMAGEM = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
@@ -23,16 +21,16 @@ TAMANHO_MINIATURA = (160, 110)
 # Janela para importar um enunciado e gerar o modelo de PL com IA. Quando o
 # modelo fica pronto, chama ao_gerar(ModeloGerado) e fecha.
 # A chamada ao Claude roda em outra thread para a tela não travar.
+# As imagens ficam só na memória: nada é gravado em disco.
 class JanelaImportar(tk.Toplevel):
 
     def __init__(self, mestre, ao_gerar):
         super().__init__(mestre)
         self._ao_gerar = ao_gerar
-        self._imagens = []
+        self._imagens = []  # (nome, imagem do Pillow)
         self._miniaturas = []
-        self._pasta = Path(tempfile.mkdtemp(prefix="simplexlab_imagens_"))
         self._fila = queue.Queue()
-        self._processo = None
+        self._cancelado = threading.Event()
         self._gerando = False
 
         self.title("Importar enunciado com IA")
@@ -115,14 +113,12 @@ class JanelaImportar(tk.Toplevel):
             return False
 
         if isinstance(conteudo, Image.Image):
-            caminho = self._pasta / f"imagem_{len(self._imagens) + 1}.png"
-            conteudo.save(caminho)
-            self._adicionar_imagem(caminho)
+            self._adicionar_imagem(f"print {len(self._imagens) + 1}", conteudo.copy())
             return True
         if isinstance(conteudo, list):
             arquivos = [Path(c) for c in conteudo if Path(c).suffix.lower() in EXTENSOES_IMAGEM]
             for arquivo in arquivos:
-                self._adicionar_imagem(arquivo)
+                self._abrir_imagem(arquivo)
             return bool(arquivos)
         return False
 
@@ -131,12 +127,21 @@ class JanelaImportar(tk.Toplevel):
         caminhos = filedialog.askopenfilenames(parent=self, title="Escolher imagem do enunciado",
                                                filetypes=TIPOS_IMAGEM)
         for caminho in caminhos:
-            self._adicionar_imagem(Path(caminho))
+            self._abrir_imagem(Path(caminho))
 
-    def _adicionar_imagem(self, caminho):
-        self._imagens.append(caminho)
+    # Lê o arquivo para a memória; o arquivo original não é copiado nem alterado.
+    def _abrir_imagem(self, caminho):
+        try:
+            with Image.open(caminho) as imagem:
+                imagem.load()
+                self._adicionar_imagem(caminho.name, imagem.copy())
+        except OSError:
+            self._informar(f"Não consegui abrir a imagem {caminho.name}.", erro=True)
+
+    def _adicionar_imagem(self, nome, imagem):
+        self._imagens.append((nome, imagem))
         self._atualizar_miniaturas()
-        self._informar(f"Imagem anexada: {caminho.name}")
+        self._informar(f"Imagem anexada: {nome}")
 
     def _remover_imagens(self):
         self._imagens.clear()
@@ -149,13 +154,13 @@ class JanelaImportar(tk.Toplevel):
             filho.destroy()
         self._miniaturas.clear()
 
-        for caminho in self._imagens:
+        for nome, imagem in self._imagens:
             try:
-                with Image.open(caminho) as imagem:
-                    imagem.thumbnail(TAMANHO_MINIATURA)
-                    miniatura = ImageTk.PhotoImage(imagem, master=self)
-            except OSError:
-                ttk.Label(self.area_miniaturas, text=caminho.name).pack(side="left", padx=(0, 8))
+                copia = imagem.copy()
+                copia.thumbnail(TAMANHO_MINIATURA)
+                miniatura = ImageTk.PhotoImage(copia, master=self)
+            except (OSError, ValueError):
+                ttk.Label(self.area_miniaturas, text=nome).pack(side="left", padx=(0, 8))
                 continue
             self._miniaturas.append(miniatura)
             tk.Label(self.area_miniaturas, image=miniatura, relief="solid", borderwidth=1,
@@ -176,22 +181,19 @@ class JanelaImportar(tk.Toplevel):
         self.progresso.start(12)
         self._informar("Gerando o PL com o Claude... isso pode levar alguns segundos.")
 
-        imagens = list(self._imagens)
+        imagens = [imagem for _nome, imagem in self._imagens]
         threading.Thread(target=self._chamar_ia, args=(texto, imagens), daemon=True).start()
         self.after(200, self._verificar_resposta)
 
     # Executa na thread secundária: não mexe na tela, só coloca o resultado na fila.
     def _chamar_ia(self, texto, imagens):
         try:
-            resultado = gerar_pl(texto, imagens, processo_iniciado=self._guardar_processo)
+            resultado = gerar_pl(texto, imagens, cancelado=self._cancelado)
             self._fila.put(("ok", resultado))
         except ErroIA as erro:
             self._fila.put(("erro", str(erro)))
         except Exception as erro:
             self._fila.put(("erro", f"Erro inesperado: {erro}"))
-
-    def _guardar_processo(self, processo):
-        self._processo = processo
 
     # Confere de tempos em tempos se a thread terminou.
     def _verificar_resposta(self):
@@ -218,14 +220,12 @@ class JanelaImportar(tk.Toplevel):
         self.status.configure(text=mensagem,
                               foreground=CORES["erro"] if erro else CORES["texto_suave"])
 
-    # Fecha a janela; se o Claude ainda estiver rodando, encerra o processo.
+    # Fecha a janela; se a IA ainda estiver respondendo, interrompe a chamada.
     def _cancelar(self):
-        if self._gerando and self._processo is not None and self._processo.poll() is None:
-            self._processo.kill()
+        self._cancelado.set()
         self._gerando = False
         self._fechar()
 
     def _fechar(self):
         self.grab_release()
         self.destroy()
-        shutil.rmtree(self._pasta, ignore_errors=True)
